@@ -1,0 +1,95 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:58:10+08:00
+
+====== 18 线程私有数据 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-24
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第12章。
+2.          总结了线程私有数据的使用方法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+线程私有数据
+线程私有数据是存储和查询与某个线程相关的数据的一种机制。每个线程可以独立地访问数据副本，而不需要担心与其它线程的同步访问问题。它提供了让基于进程的接口适应多线程环境的机制，如errno。
+
+键
+在分配线程私有数据之前，需要创建与该数据关联的键。这个键将用于获取对线程私有数据的访问权。使用pthread_key_create创建一个键。创建的键存放在keyp指向的内存单元，这个键可以被进程中的所有线程使用，但每个线程把这个键与不同的线程私有数据地址进行关联。通常，键可以是所有线程共享的一个全局变量，而与键关联的数据则可能是每个线程拥有各自副本的同名局部变量。创建新键时，每个线程的数据地址设为null值。
+         除了创建键以外，pthread_key_create可以选择为该键关联析构函数，当线程退出时，如果数据地址已经被置为非null数值，那么析构函数就会被调用，它唯一的参数就是数据地址。当线程调用pthread_exit或者线程执行返回，正常退出时，析构函数就会被调用，但如果线程调用了exit、_exit、_Exit、about或出现其它非正常的退出时，就不会调用析构函数。
+     对所有线程，都可以调用pthread_key_delete来取消键与私有数据值之间的关联关系，但并不会激活与键关联的析构函数。
+#include <pthread.h>
+int pthread_key_create(pthread_key_t *keyp, void (*destructor)(void *));
+int pthread_key_delete(pthread_key_t *key);
+                                        Both return: 0 if OK, error number on failure
+
+pthread_once
+ 
+ 
+为了防止多个线程都创建键而产生的竞争条件，可以使用pthread_once函数。其中，initflag必须是一个非本地变量（即全局变量或静态变量），而且必须初始化为PTHREAD_ONCE_INIT。如果每个线程都调用pthread_once，系统就能保证初始化例程initfn只被调用一次，即在系统首次调用pthread_once时。
+#include <pthread.h>
+pthread_once_t initflag = PTHREAD_ONCE_INIT;
+int pthread_once(pthread_once_t *initflag, void (*initfn)(void));
+Returns: 0 if OK, error number on failure
+
+关联数据
+键一旦创建，就可以通过调用pthread_setspecific函数把键和线程私有数据关联起来。可以通过pthread_getspecific函数获得线程私有数据的地址。
+#include <pthread.h>
+void *pthread_getspecific(pthread_key_t key);
+Returns: thread-specific data value or NULL if no value
+has been associated with the key
+int pthread_setspecific(pthread_key_t key, const void *value);
+Returns: 0 if OK, error number on failure
+         范例程序如下：
+#include <limits.h>
+#include <string.h>
+#include <pthread.h>
+#include <stdlib.h>
+ 
+static pthread_key_t key;
+static pthread_once_t init_done = PTHREAD_ONCE_INIT;
+pthread_mutex_t env_mutex = PTHREAD_MUTEX_INITIALIZER;
+ 
+extern char **environ;
+ 
+static void
+thread_init(void)
+{
+    pthread_key_create(&key, free);
+}
+ 
+char *
+getenv(const char *name)
+{
+    int     i, len;
+    char    *envbuf;
+ 
+    pthread_once(&init_done, thread_init);
+    pthread_mutex_lock(&env_mutex);
+    envbuf = (char *)pthread_getspecific(key);
+    if (envbuf == NULL) {
+        envbuf = malloc(ARG_MAX);
+        if (envbuf == NULL) {
+            pthread_mutex_unlock(&env_mutex);
+            return(NULL);
+        }
+        pthread_setspecific(key, envbuf);
+    }
+    len = strlen(name);
+    for (i = 0; environ[i] != NULL; i++) {
+        if ((strncmp(name, environ[i], len) == 0) &&
+          (environ[i][len] == '=')) {
+            strcpy(envbuf, &environ[i][len+1]);
+            pthread_mutex_unlock(&env_mutex);
+            return(envbuf);
+        }
+    }
+    pthread_mutex_unlock(&env_mutex);
+    return(NULL);
+}

@@ -1,0 +1,162 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:56:25+08:00
+
+====== 14 多线程 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-20
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第11章。
+2.          总结了多线程的一些基本概念，包括如何创建和终止线程，以及分离线程和线程清理程序。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+为什么要多线程
+多线程编程使得进程能够被设计成在同一时刻能够做不止一件事，每个线程处理各自独立地任务。这种方法有很多好处：
+l          通过为每种事件类型的处理分配单独的线程，能够简化处理异步事件的代码。
+l          多个进程必须使用操作系统提供的复杂机制才能实现内存和文件描述符的共享，而多个线程自动地可以访问相同的存储地址空间和文件描述符。
+l          多个控制线程使得相互独立的任务的处理可以交叉进行，从而改善整个程序的吞吐量。
+l          交互式的程序可以通过使用多线程实现响应时间的改善，多个线程可以把程序中处理用户输入输出的部分与其它部分分开。
+
+线程信息
+线程包含了表示进程内执行环境必需的信息，其中包括进程中标识线程的线程ID、一组寄存器值、栈、调度优先级和策略、信号屏蔽字、errno变量以及线程私有数据。进程的所有信息对该进程的所有线程都是共享的，包括可执行的程序文本、程序的全局内存和堆内存、栈以及文件描述符。
+
+线程标识
+ 
+每个线程有一个线程ID。进程ID在整个系统中是唯一的，单线程ID不同，线程ID只在它所属的进程环境中有效。线程ID用pthread_t数据类型来表示，它可能是一个结构，因此，必须使用pthread_equal函数来对两个线程ID进行比较。线程可以调用pthread_self函数获得自身的线程ID。
+#include <pthread.h>
+int pthread_equal(pthread_t tid1, pthread_t tid2);
+pthread_t pthread_self(void);
+
+创建线程
+新增的线程可以通过pthread_create函数创建。
+#include <pthread.h>
+int pthread_create(pthread_t *restrict tidp, const pthread_attr_t *restrict attr,
+void *(*start_rtn)(void *), void *restrict arg);
+                       Returns: 0 if OK, error number on failure
+         当pthread_create成功返回时，由tidp指向的内存单元被设置为新创建线程的线程ID。attr参数用于定制各种不同的线程属性。若为NULL，则创建默认属性的线程。新创建的线程从start_rtn函数的地址开始执行，该函数只有一个无类型指针参数arg。如果需要向start_rtn函数传递的参数不止一个，那么需要把这些参数放到一个结构中，然后把这个结构的地址作为arg参数传入。pthread函数在调用失败时通常返回错误码。
+         与创建进程一样，线程创建时并不能保证哪个线程会先运行：是新创建的线程还是调用线程。新创建的线程可以访问进程的地址空间，并且继承调用线程的浮点环境和信号屏蔽字，但是该线程的未决信号集被清除。
+
+线程终止
+如果进程中的任一线程调用了exit，_exit或_Exit，那么整个进程就会终止。与此类似，如果信号的默认动作是终止进程，那么，把该信号发送到线程会终止整个进程。单个线程可以通过下列三种方式退出，在不终止整个进程的情况下停止它的控制流。
+l          线程从启动例程中返回，返回值是现成的退出码。
+l          线程可以被同一进程中的其它线程取消。
+l          线程调用pthread_exit。
+#include <pthread.h>
+void pthread_exit(void *rval_ptr);
+int pthread_join(pthread_t thread, void **rval_ptr);
+                                          Returns: 0 if OK, error number on failure
+         其中，rval_ptr是一个无类型指针，与传递给启动例程的单个参数类似。进程中的其它线程可以通过调用pthread_join函数访问到这个指针。它可以是一个复杂结构的地址，但是这个结构所使用的内存在调用者完成调用以后仍然有效，否则会出现无效或非法内存访问。pthread_join这个函数类似父进程对子进程的waitpid。调用线程将一直阻塞，直到指定的线程调用pthread_exit、从启动例程中返回或者被取消。如果线程只是从它的启动例程返回，rval_ptr将包含返回码。如果线程被取消，由rval_ptr指定的内存单元就置为PTHREAD_CANCELED。如果对线程的返回值不感兴趣，可以吧rval_ptr置为NULL。调用pthread_join将自动把线程置于分离状态，这样资源就可以恢复。相当于对僵死进程的超度。
+         线程可以通过调用pthread_cancel函数来请求取消同一进程中的其它线程。
+#include <pthread.h>
+int pthread_cancel(pthread_t tid);
+                                          Returns: 0 if OK, error number on failure
+         在默认情况下，pthread_cancel函数会使得由tid标识的线程的行为表现为如同调用了参数为PTHREAD_CANCELD的pthread_exit函数，但是，线程可以选择忽略取消方式或是控制取消方式。另外，pthread_cancel并不等待线程终止，它仅仅是提出请求。
+
+线程清理处理程序
+线程可以安排它退出时需要调用的函数，这与进程可以用atexit函数安排进程退出时需要调用的函数类似。这与的函数称为线程清理处理程序。处理程序记录在栈中，即它们的执行顺序与它们注册时的顺序相反。
+#include <pthread.h>
+void pthread_cleanup_push(void (*rtn)(void *), void *arg);
+void pthread_cleanup_pop(int execute);
+当线程执行一下动作时调用清理函数，参数为arg：1）调用pthread_exit时；2）响应取消请求时；3）用非零execute参数调用pthread_cleanup_pop时。如果execute参数为0，pthread_cleanup_pop将删除上次pthread_cleanup_push建立的清理函数，但是并不调用。如果线程是 从它的启动例程中返回而终止的话，那么它的清理处理程序就不会被调用。
+
+分离线程
+ 
+pthread_detach函数可以用于使线程进入分离状态。如果线程已经处于分离状态，线程的底层存储资源可以在线程终止时立即被收回。当线程被分离时，并不能用pthread_join函数等待它的终止状态。对分离状态的线程进行pthread_join的调用会产生失败，返回EINVAL。这类似于使用sigaction对SIGCHLD信号设置SA_NOCLDWAIT标志，当调用进程的子进程终止时，不创建僵死进程，waitpid调用失败。
+#include <pthread.h>
+int pthread_detach(pthread_t tid);
+         实验程序如下：
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <string.h>
+ 
+void cleanup(void *arg)
+{
+     printf("cleanup: %s/n", (char *)arg);
+}
+ 
+void *thr_fn1(void *arg)
+{
+     printf("thread 1 start: pid=%u, tid=%u(0x%x)/n",
+         getpid(), (unsigned int)pthread_self(), (unsigned int)pthread_self());
+     pthread_cleanup_push(cleanup, "thread 1 first handler");
+     pthread_cleanup_push(cleanup, "thread 1 second handler");
+     sleep(10);                    /*线程被取消，不会等这么久*/
+     printf("after sleep/n");      /*不会打印*/
+     if(arg)
+       pthread_exit((void *)0);
+     pthread_cleanup_pop(0);       /*push和pop要配对,不然编译出错*/
+     pthread_cleanup_pop(0);
+     pthread_exit((void *)0);
+}
+ 
+void *thr_fn2(void *arg)
+{
+     int err;
+ 
+     printf("thread 2 start: pid=%u, tid=%u(0x%x)/n",
+         getpid(), (unsigned int)pthread_self(), (unsigned int)pthread_self());
+     pthread_cleanup_push(cleanup, "thread 2 first handler");
+     pthread_cleanup_push(cleanup, "thread 2 second handler");
+     err = pthread_cancel(*((pthread_t *)arg));
+     if(err != 0)
+       perror("pthread_cancel error");
+     pthread_cleanup_pop(1);
+     pthread_cleanup_pop(0);
+     return (void *)0;
+}
+ 
+int main()
+{
+     int err;
+     pthread_t tid1, tid2;
+     void *tret;
+ 
+     printf("main thread: pid=%u, tid=%u(0x%x)/n",
+         getpid(), (unsigned int)pthread_self(), (unsigned int)pthread_self());
+     err = pthread_create(&tid1, NULL, thr_fn1, (void *)1);
+     if(err != 0)
+     {
+       printf("pthread_create thr_fn1 error: %s/n", strerror(err));
+       exit(EXIT_FAILURE);
+     }
+     err = pthread_create(&tid2, NULL, thr_fn2, (void *)&tid1);
+     if(err != 0)
+     {
+       printf("pthread_create thr_fn2 error: %s/n", strerror(err));
+       exit(EXIT_FAILURE);
+     }
+     err = pthread_join(tid1, &tret);
+     if(err != 0)
+     {
+       printf("pthread_join thread 1 error: %s/n", strerror(err));
+       exit(EXIT_FAILURE);
+     }
+     printf("thread 1 exit code %d(PTHREAD_CANCELED=%d)/n",
+         (int)tret, (int)PTHREAD_CANCELED);
+     err = pthread_join(tid2, &tret);
+     if(err != 0)
+     {
+       printf("pthread_join thread 2 error: %s/n", strerror(err));
+       exit(EXIT_FAILURE);
+     }
+     printf("thread 2 exit code %d/n", (int)tret);
+     exit(EXIT_SUCCESS);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+main thread: pid=5689, tid=3084695232(0xb7dcb6c0)
+thread 1 start: pid=5689, tid=3084692368(0xb7dcab90)
+thread 2 start: pid=5689, tid=3076299664(0xb75c9b90)
+cleanup: thread 2 second handler
+cleanup: thread 1 second handler
+cleanup: thread 1 first handler
+thread 1 exit code -1(PTHREAD_CANCELED=-1)
+thread 2 exit code 0

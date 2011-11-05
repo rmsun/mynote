@@ -1,0 +1,107 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:55:48+08:00
+
+====== 12 信号屏蔽字 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-16
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第10章。
+2.          总结了信号集、未决信号以及信号屏蔽字的相关概念和用法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+信号集
+信号集是一个能表示多个信号的数据类型sigset_t。函数sigemptyset和sigfillset初始化由set指向的信号集，前者清除其中所有信号，后者使其包括所有信号。在使用信号集前，要对该信号集调用sigemptyset或sigfillset一次。一旦初始化一个信号集，就可在该信号集中增删特定的信号。函数sigaddset将一个信号添加到现有集中，sigdelset则从信号集中删除一个信号。函数sigismember则测试指定信号是否包含在信号集中。
+#include <signal.h>
+int sigemptyset(sigset_t *set);
+int sigfillset(sigset_t *set);
+int sigaddset(sigset_t *set, int signo);
+int sigdelset(sigset_t *set, int signo);
+All four return: 0 if OK, 1 on error
+int sigismember(const sigset_t *set, int signo);
+Returns: 1 if true, 0 if false, 1 on error
+
+未决信号
+在信号产生和递送给进程之间的时间间隔内，称信号是未决的（pending）。sigpending函数返回信号集，其中的各个信号对于调用进程是阻塞的而不能递送，因而也一定是当前未决的。该信号集通过set参数返回。
+#include <signal.h>
+int sigpending(sigset_t *set);
+
+信号屏蔽字
+一个进程的信号屏蔽字规定了当前阻塞而不能递送给该进程的信号集。如果为进程产生了一个选择为阻塞的信号，而且对该信号的动作是默认动作或是捕捉该信号，则为该进程将此信号保持为未决状态，直到该进程对此信号解除了阻塞，或者将对此信号的动作更改为忽略。调用函数sigprocmask可以检测或更改其信号屏蔽字，或者在一个步骤中同时执行这两个操作。
+#include <signal.h>
+int sigprocmask(int how, const sigset_t *restrict set, sigset_t *restrict oset);
+         若oset是非空指针，那么进程的当前信号屏蔽字通过oset返回。若set是一个非空指针，则参数how指示如何修改当前信号屏蔽字：SIG_BLOCK表示添加；SIG_UNBLOCK表示删除；SIG_SETMASK表示重新设置。若set是空指针，则不改变该进程的信号屏蔽字。如果编写一个可能由他人使用的函数，而且需要在函数中阻塞一个信号，则不能用SIG_UNBLOCK简单地解除对此信号的阻塞，因为该函数的调用者在调用该函数前可能也阻塞了此信号。在这种情况下，必须使用SIG_SETMASK将信号屏蔽字复位为原先值，这样也就能继续阻塞此信号。
+在调用sigprocmask后如果有任何未决的、不再阻塞的信号，则在sigprocmask返回前，至少会将其中一个信号递送给该进程。
+
+sigsuspend
+ 
+ 
+         如果要在一个原子操作中先设置信号屏蔽字，然后使进程休眠，可以使用sigsuspend函数。它将进程的信号屏蔽字设置为sigmask指向的值。在捕捉到一个信号或发生了一个会终止该进程的信号之前，该进程被挂起。如果捕捉到一个信号而且从该信号处理函数返回，则sigsuspend返回，并且将该进程的信号屏蔽字设置为调用sigsuspend之前的值。该函数的功能类似顺序调用sigprocmask和pause，但它关闭了sigprocmask和pause之间的缺口。
+#include <signal.h>
+int sigsuspend(const sigset_t *sigmask);
+         实验程序如下：
+#include "apue.h"
+ 
+sigset_t sigpend;
+ 
+static void sig_quit(int signo)
+{
+     pr_mask("/nin sig_quit: ");
+     if(sigpending(&sigpend) < 0)
+       err_sys("sigpending error");
+     if(sigismember(&sigpend, SIGINT))
+       printf("SIGINT is pending./n");
+     if(!sigismember(&sigpend, SIGUSR1))
+       printf("SIGUSR1 is not pending./n");
+}
+ 
+static void sig_int(int signo)
+{
+     printf("receive SIGINT/n");
+}
+ 
+int main()
+{
+     sigset_t newmask, oldmask, waitmask;
+ 
+     pr_mask("program start: ");
+     if(signal(SIGINT, sig_int) == SIG_ERR)
+       err_sys("signal(SIGINT) error");
+     if(signal(SIGQUIT, sig_quit) == SIG_ERR)
+       err_sys("signal(SIGINT) error");
+     sigemptyset(&waitmask);
+     sigaddset(&waitmask, SIGINT);
+     sigemptyset(&newmask);
+     sigaddset(&newmask, SIGUSR1);
+     sigaddset(&newmask, SIGQUIT);
+     if(sigprocmask(SIG_BLOCK, &newmask, &oldmask) < 0)
+       err_sys("SIG_BLOCK error");
+     /*critical region*/
+     pr_mask("in critical region: ");
+     if(sigsuspend(&waitmask) != -1)
+       err_sys("sigsuspend error");
+     pr_mask("after return from sigsuspend: ");
+     if(sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0)
+       err_sys("SIG_SETMASK error");
+     pr_mask("program exit: ");
+     exit(0);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+program start:
+in critical region: SIGQUIT SIGUSR1
+^C^C^C^C^/
+in sig_quit: SIGINT
+SIGINT is pending.
+SIGUSR1 is not pending.
+receive SIGINT
+after return from sigsuspend: SIGQUIT SIGUSR1
+program exit:
+ 

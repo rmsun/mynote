@@ -1,0 +1,84 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:52:05+08:00
+
+====== 2 errno变量 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-7
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第1章。
+2.          主要介绍errno变量的使用，包括如何打印出错消息，以及多线程下的errno变量。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+errno
+ 
+变量
+当函数出错时，常常返回一个负值(-1)，而且整型变量errno通常被设置为含有附加信息的一个值。例如，open函数如果成功执行则返回一个非负的文件描述符，如果出错则返回-1。在open出错时，有大约15种不同的errno值（如文件不存在，权限问题等）。变量errno定义在文件<errno.h>中。在linux下，可以赋予它的各种常量在<asm-generic/errno.h>和<asm-generic/errno-base.h>文件中定义，共131个，这些常量都以E开头，具体含义可以参考注释，也可以在man中查询（man errno）。
+使用errno变量，应当记住两条规则：
+l          如果没有出错，则其值不会被一个函数改变。因此，仅当函数的返回值指明出错时，才检查errno。
+l          任一函数不会将errno的值设置为0，在<errno.h>中定义的所有常量都不为0。
+
+打印出错消息
+C标准定义了两个函数用于打印出错信息。
+#include <string.h>
+char *strerror(int errnum);
+ 
+#include <stdio.h>
+void perror(const char *msg);
+strerror函数将errnum（通常就是errno）映射为一个出错信息字符串，并且返回此字符串的指针。perror函数基于errno的当前值，在标准出错上产生一条出错消息，然后返回。它首先输出由msg指向的字符串，然后是一个冒号，一个空格，接着是对应于errno值的出错消息，最后是一个换行符。使用范例如下：
+#include <errno.h>
+#include <stdio.h>
+#include <string.h>
+ 
+int main(int argc, char *argv[])
+{
+     fprintf(stderr, "EACCES: %s/n", strerror(EACCES));
+     errno = ENOENT;
+     perror(argv[0]);
+     exit(0);
+}
+其输出为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+EACCES: Permission denied
+./a.out: No such file or directory
+
+多线程下的
+errno
+在支持线程的环境中，多个线程共享进程的地址空间，但是每个线程都有属于它自己的局部errno，以避免一个线程干扰另一个线程。测试程序如下：
+#include <stdio.h>
+#include <errno.h>
+#include <pthread.h>
+ 
+pthread_t ntid;
+ 
+void *thr_fn1(void *arg)
+{
+     errno = 100;
+     printf("thread %u: errno=%d/n", (unsigned int)pthread_self(), errno);
+}
+ 
+void *thr_fn2(void *arg)
+{
+     printf("thread %u: errno=%d/n", (unsigned int)pthread_self(), errno);
+}
+ 
+int main()
+{
+     int err;
+ 
+     errno = 131;
+     pthread_create(&ntid, NULL, thr_fn1, NULL);
+     pthread_create(&ntid, NULL, thr_fn2, NULL);
+     exit(0);
+}
+由于pthread库不是Linux系统默认的库，连接时需要使用库libpthread.a，所以用gcc编译时要加-lpthread参数，如gcc thread_errno.c -lpthread。运行结果如下，errno在主线程和两个新创建的线程之间保持独立。
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+thread 3085015952: errno=100
+thread 3076623248: errno=0

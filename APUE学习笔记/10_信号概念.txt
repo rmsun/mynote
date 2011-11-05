@@ -1,0 +1,76 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:54:48+08:00
+
+====== 10 信号概念 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-15
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第10章。
+2.          总结了有关信号的基本概念，包括信号产生的原因和对信号的处理方式。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+信号概念
+信号是软件中断，提供了一种处理异步事件的方法。每个信号都有一个名字，以字符SIG开头，定义为正整数。在linux下，目前有31种不同的信号，定义在<bits/signum.h>中。不存在编号为0的信号。很多条件可以产生信号：
+l          当用户按某些终端键时，引发终端产生的信号，如中断（Ctrl+C，SIGINT）、退出（Ctrl+/，SIGQUIT）和挂起（Ctrl+Z，SIGTSTP）键。
+l          硬件异常产生信号，如除数为0、浮点溢出（SIGFPE），无效的内存引用（SIGSEGV）等。
+l          进程调用kill函数可将信号发送给另一个进程或进程组。
+l          用户可用kill命令将信号发送给其它进程。常用此命令终止一个失控的后台进程。
+l          当检测到某种软件条件已经发生，并应将其通知有关时也产生信号，如进程所设置的定时器到期时产生SIGALRM。
+当某个信号出现时，可以以三种方式之一进行处理：
+l          忽略信号。有两种信号（SIGKILL和SIGSTOP）不能被忽略，它们向超级用户提供了使进程终止或停止的可靠方法。
+l          捕捉信号。为做到这一点，要通知内核在某种信号发生时调用一个用户函数。不能捕捉SIGKILL和SIGSTOP信号。
+l          执行系统默认动作。针对大多数信号的系统默认动作是终止进程。
+
+捕捉信号
+要捕捉一个信号，最简单的方式是调用signal函数为它指定一个信号处理函数。
+#include <signal.h>
+void (*signal(int signo, void (*func)(int)))(int);
+signo参数是信号名，func参数的值是常量SIG_IGN（忽略）、SIG_DFL（默认）或信号处理函数的地址。信号处理函数接收信号名作为参数，并且没有返回值。signal函数的返回值是SIG_IGN、SIG_DFL或指向之前的信号处理函数的指针，若出错则返回SIG_ERR。当一个进程调用fork时，其子进程继承父进程的信号处理方式。但exec函数将原先设置为要捕捉的信号都更改为它们的默认方式，因为原信号处理函数可能在所执行的新程序中并无定义。
+         值得注意的是，在进入信号处理函数中，将屏蔽当前信号。信号屏蔽的概念将在以后解释。
+
+可重入函数
+进程捕捉到信号并对其进行处理时，进程正在执行的指令序列就被信号处理函数临时中断。它首先执行该信号处理函数中的指令。如果从信号处理函数返回（如没有调用exit或longjmp），则继续执行在捕捉到信号时进程正在执行的正常指令序列（类似于硬件中断）。但在信号处理函数中，不能判断捕捉到信号时进程在何处执行。因此，在信号处理函数中应当调用可重入函数。否则，其结果是不可预见的。
+不可重入函数的原因主要是：1）使用静态数据结构；2）调用malloc或free；3）是标准IO函数，标准IO库德很多实现都以不可重入方式使用全局数据结构。
+由于每个线程只有一个errno变量，所以信号处理函数可能会修改其原先值。作为一个通用的规则，当在信号处理函数中调用可能修改errno值的函数时，应当在其前保存，在其后恢复errno。
+         实验程序如下：
+#include "apue.h"
+#include <errno.h>
+ 
+void sig_quit(int signo)
+{
+     int old_errno;
+ 
+     old_errno = errno;          /*save for restoration*/
+     write(STDOUT_FILENO, "receive SIGQUIT./n", 18);
+     pr_mask("in sig_quit: ");
+     errno = old_errno;
+}
+ 
+int main()
+{
+     pid_t pid;
+ 
+     if( signal(SIGQUIT, sig_quit) == SIG_ERR)   /*shared by child*/
+       printf("signal SIGQUIT error./n");
+     if( (pid = fork()) < 0)
+     {
+       printf("fork error./n");
+       exit(EXIT_FAILURE);
+     }
+     pause();
+     exit(EXIT_SUCCESS);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+^/receive SIGQUIT.
+in sig_quit:
+receive SIGQUIT.
+in sig_quit:

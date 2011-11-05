@@ -1,0 +1,289 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-28T18:19:38+08:00
+
+====== 对C C++可变参数表的深层探索 ======
+Created Friday 28 October 2011
+
+引言
+
+　　C/C++语言有一个不同于其它语言的特性，即其支持可变参数，典型的函数如printf、scanf等可以接受数量不定的参数。如：
+
+printf ( "I love you" ); 
+printf ( "%d", a );
+printf ( "%d,%d", a, b );
+
+　　第一、二、三个printf分别接受1、2、3个参数，让我们看看printf函数的原型：
+
+int printf ( const char *format, ... );
+
+　　从函数原型可以看出，其除了接收一个固定的参数format以外，后面的参数用"…"表示。在C/C++语言中，"…"表示可以接受不定数量的参数，理论上来讲，可以是0或0以上的n个参数。
+
+　　本文将对C/C++可变参数表的使用方法及C/C++支持可变参数表的深层机理进行探索。 
+
+　　可变参数表的用法
+
+　　1、相关宏
+
+　　标准C/C++包含头文件stdarg.h，该头文件中定义了如下三个宏：
+
+void va_start ( va_list arg_ptr, prev_param ); /* ANSI version */
+type va_arg ( va_list arg_ptr, type ); 
+void va_end ( va_list arg_ptr );
+
+　　在这些宏中，va就是variable argument(可变参数)的意思；arg_ptr是指向可变参数表的指针；prev_param则指可变参数表的前一个固定参数；type为可变参数的类型。va_list也是一个宏，其定义为typedef char * va_list，实质上是一char型指针。char型指针的特点是++、--操作对其作用的结果是增1和减1（因为sizeof(char)为1），与之不同的是int等其它类型指针的++、--操作对其作用的结果是增sizeof(type)或减sizeof(type)，而且sizeof(type)大于1。
+
+　　通过va_start宏我们可以取得可变参数表的首指针，这个宏的定义为：
+
+#define va_start ( ap, v ) ( ap = (va_list)&v + _INTSIZEOF(v) )
+
+　　显而易见，其含义为将最后那个固定参数的地址加上可变参数对其的偏移后赋值给ap，这样ap就是可变参数表的首地址。其中的_INTSIZEOF宏定义为：
+
+#define _INTSIZEOF(n) ((sizeof ( n ) + sizeof ( int ) - 1 ) & ~( sizeof( int ) - 1 ) )
+
+　　va_arg宏的意思则指取出当前arg_ptr所指的可变参数并将ap指针指向下一可变参数，其原型为：
+
+#define va_arg(list, mode) ((mode *)(list =\
+(char *) ((((int)list + (__builtin_alignof(mode)<=4?3:7)) &\
+(__builtin_alignof(mode)<=4?-4:-8))+sizeof(mode))))[-1]
+
+　　对这个宏的具体含义我们将在后面深入讨论。
+
+　　而va_end宏被用来结束可变参数的获取，其定义为：
+
+#define va_end ( list )
+
+　　可以看出，va_end ( list )实际上被定义为空，没有任何真实对应的代码，用于代码对称，与va_start对应；另外，它还可能发挥代码的"自注释"作用。所谓代码的"自注释"，指的是代码能自己注释自己。
+
+　　下面我们以具体的例子来说明以上三个宏的使用方法。
+
+　　2、一个简单的例子
+
+#include <stdarg.h>
+/*　函数名：max
+*　功能：返回n个整数中的最大值
+* 参数：num：整数的个数 ...：num个输入的整数
+* 返回值：求得的最大整数
+*/
+int max ( int num, ... )
+{
+　int m = -0x7FFFFFFF; /* 32系统中最小的整数 */
+　va_list ap;
+　va_start ( ap, num );
+　for ( int i= 0; i< num; i++ )
+　{
+　　int t = va_arg (ap, int);
+　　if ( t > m )
+　　{
+　　　m = t;
+　　}
+　}
+　va_end (ap);
+　return m;
+} 
+/* 主函数调用max */
+int main ( int argc, char* argv[] )
+{ 
+　int n = max ( 5, 5, 6 ,3 ,8 ,5); /* 求5个整数中的最大值 */
+　cout << n;
+　return 0;
+}
+
+　　函数max中首先定义了可变参数表指针ap，而后通过va_start ( ap, num )取得了参数表首地址（赋给了ap），其后的for循环则用来遍历可变参数表。这种遍历方式与我们在数据结构教材中经常看到的遍历方式是类似的。
+
+　　函数max看起来简洁明了，但是实际上printf的实现却远比这复杂。max函数之所以看起来简单，是因为：
+
+　　(1) max函数可变参数表的长度是已知的，通过num参数传入；
+
+　　(2) max函数可变参数表中参数的类型是已知的，都为int型。
+
+　　而printf函数则没有这么幸运。首先，printf函数可变参数的个数不能轻易的得到，而可变参数的类型也不是固定的，需由格式字符串进行识别（由%f、%d、%s等确定），因此则涉及到可变参数表的更复杂应用。
+
+　　下面我们以实例来分析可变参数表的高级应用。
+高级应用
+
+　　下面这个程序是我们为某嵌入式系统（该系统中CPU的字长为16位）编写的在屏幕上显示格式字符串的函数DrawText，它的用法类似于int printf ( const char *format, ... )函数，但其输出的目标为嵌入式系统的液晶显示屏幕（LED）。
+
+///////////////////////////////////////////////////////////////////////////////
+// 函数名称: DrawText
+// 功能说明: 在显示屏上绘制文字
+// 参数说明: xPos ---横坐标的位置 [0 .. 30]
+// yPos ---纵坐标的位置 [0 .. 64]
+// ... 可以同数字一起显示，需设置标志(%d、%l、%x、%s)
+///////////////////////////////////////////////////////////////////////////////
+extern void DrawText ( BYTE xPos, BYTE yPos, LPBYTE lpStr, ... )
+{
+　BYTE lpData[100]; //缓冲区
+　BYTE byIndex;
+　BYTE byLen;
+　DWORD dwTemp;
+　WORD wTemp;
+　int i; 
+　va_list lpParam;
+
+　memset( lpData, 0, 100);
+　byLen = strlen( lpStr );
+　byIndex = 0;
+　va_start ( lpParam, lpStr );
+
+　for ( i = 0; i < byLen; i++ )
+　{
+　　if( lpStr[i] != ’%’ ) //不是格式符开始
+　　{
+　　　lpData[byIndex++] = lpStr[i];
+　　}
+　　else
+　　{
+　　　switch (lpStr[i+1])
+　　　{
+　　　　//整型
+　　　　case ’d’:
+　　　　case ’D’:
+　　　　　wTemp = va_arg ( lpParam, int );
+　　　　　byIndex += IntToStr( lpData+byIndex, (DWORD)wTemp ); 
+　　　　　i++;
+　　　　　break;
+　　　　　//长整型
+　　　　case ’l’:
+　　　　case ’L’:
+　　　　　dwTemp = va_arg ( lpParam, long );
+　　　　　byIndex += IntToStr ( lpData+byIndex, (DWORD)dwTemp );
+　　　　　i++;
+　　　　　break;
+　　　　　//16进制（长整型）
+　　　　case ’x’:
+　　　　case ’X’:
+　　　　　dwTemp = va_arg ( lpParam, long );
+　　　　　byIndex += HexToStr ( lpData+byIndex, (DWORD)dwTemp );
+　　　　　i++;
+　　　　　break;
+　　　　default:
+　　　　　lpData[byIndex++] = lpStr[i];
+　　　　　break;
+　　　}
+　　}
+　}
+　va_end ( lpParam );
+　lpData[byIndex] = ’\0’;
+　DisplayString ( xPos, yPos, lpData, TRUE);　//在屏幕上显示字符串lpData
+}
+
+　　在这个函数中，需通过对传入的格式字符串（首地址为lpStr）进行识别来获知可变参数个数及各个可变参数的类型，具体实现体现在for循环中。譬如，在识别为%d后，做的是va_arg ( lpParam, int )，而获知为%l和%x后则进行的是va_arg ( lpParam, long )。格式字符串识别完成后，可变参数也就处理完了。
+
+　　在项目的最初，我们一直苦于不能找到一个好的办法来混合输出字符串和数字，我们采用了分别显示数字和字符串的方法，并分别指定坐标，程序条理被破坏。而且，在混合显示的时候，要给各类数据分别人工计算坐标，我们感觉头疼不已。以前的函数为：
+
+//显示字符串
+showString ( BYTE xPos, BYTE yPos, LPBYTE lpStr )
+//显示数字
+showNum ( BYTE xPos, BYTE yPos, int num )
+//以16进制方式显示数字
+showHexNum ( BYTE xPos, BYTE yPos, int num )
+
+　　最终，我们用DrawText ( BYTE xPos, BYTE yPos, LPBYTE lpStr, ... )函数代替了原先所有的输出函数，程序得到了简化。就这样，兄弟们用得爽翻了。
+运行机制探索
+
+　　通过第2节我们学会了可变参数表的使用方法，相信喜欢抛根问底的读者还不甘心，必然想知道如下问题：
+
+　　（1）为什么按照第2节的做法就可以获得可变参数并对其进行操作？
+
+　　（2）C/C++在底层究竟是依靠什么来对这一语法进行支持的，为什么其它语言就不能提供可变参数表呢？
+
+　　我们带着这些疑问来一步步进行摸索。
+
+　　3.1 调用机制反汇编
+
+　　反汇编是研究语法深层特性的终极良策，先来看看2.2节例子中主函数进行max ( 5, 5, 6 ,3 ,8 ,5)调用时的反汇编：
+
+1. 004010C8 push 5 
+2. 004010CA push 8
+3. 004010CC push 3
+4. 004010CE push 6
+5. 004010D0 push 5
+6. 004010D2 push 5
+7. 004010D4 call @ILT+5(max) (0040100a)
+
+　　从上述反汇编代码中我们可以看出，C/C++函数调用的过程中：
+
+　　第一步：将参数从右向左入栈（第1～6行）；
+
+　　第二步：调用call指令进行跳转（第7行）。
+
+　　这两步包含了深刻的含义，它说明C/C++默认的调用方式为由调用者管理参数入栈的操作，且入栈的顺序为从右至左，这种调用方式称为_cdecl调用。x86系统的入栈方向为从高地址到低地址，故第1至n个参数被放在了地址递增的堆栈内。在被调用函数内部，读取这些堆栈的内容就可获得各个参数的值，让我们反汇编到max函数的内部：
+
+int max ( int num, ...)
+{
+1. 00401020 push ebp
+2. 00401021 mov ebp,esp
+3. 00401023 sub esp,50h
+4. 00401026 push ebx
+5. 00401027 push esi
+6. 00401028 push edi
+7. 00401029 lea edi,[ebp-50h]
+8. 0040102C mov ecx,14h
+9. 00401031 mov eax,0CCCCCCCCh
+10. 00401036 rep stos dword ptr [edi]
+va_list ap;
+int m = -0x7FFFFFFF; /* 32系统中最小的整数 */
+11. 00401038 mov dword ptr [ebp-8],80000001h
+va_start ( ap, num );
+12. 0040103F lea eax,[ebp+0Ch]
+13. 00401042 mov dword ptr [ebp-4],eax
+for ( int i= 0; i< num; i++ )
+14. 00401045 mov dword ptr [ebp-0Ch],0
+15. 0040104C jmp max+37h (00401057)
+16. 0040104E mov ecx,dword ptr [ebp-0Ch]
+17. 00401051 add ecx,1
+18. 00401054 mov dword ptr [ebp-0Ch],ecx
+19. 00401057 mov edx,dword ptr [ebp-0Ch]
+20. 0040105A cmp edx,dword ptr [ebp+8]
+21. 0040105D jge max+61h (00401081)
+{
+int t= va_arg (ap, int);
+22. 0040105F mov eax,dword ptr [ebp-4]
+23. 00401062 add eax,4
+24. 00401065 mov dword ptr [ebp-4],eax
+25. 00401068 mov ecx,dword ptr [ebp-4]
+26. 0040106B mov edx,dword ptr [ecx-4]
+27. 0040106E mov dword ptr [t],edx
+if ( t > m )
+28. 00401071 mov eax,dword ptr [t]
+29. 00401074 cmp eax,dword ptr [ebp-8]
+30. 00401077 jle max+5Fh (0040107f)
+m = t;
+31. 00401079 mov ecx,dword ptr [t]
+32. 0040107C mov dword ptr [ebp-8],ecx
+}
+33. 0040107F jmp max+2Eh (0040104e)
+va_end (ap);
+34. 00401081 mov dword ptr [ebp-4],0
+return m;
+35. 00401088 mov eax,dword ptr [ebp-8]
+}
+36. 0040108B pop edi
+37. 0040108C pop esi
+38. 0040108D pop ebx
+39. 0040108E mov esp,ebp
+40. 00401090 pop ebp
+41. 00401091 ret
+
+　　分析上述反汇编代码，对于一个真正的程序员而言，将是一种很大的享受；而对于初学者，也将使其受益良多。所以请一定要赖着头皮认真研究，千万不要被吓倒！ 
+
+　　行1～10进行执行函数内代码的准备工作，保存现场。第2行对堆栈进行移动；第3行则意味着max函数为其内部局部变量准备的堆栈空间为50h字节；第11行表示把变量n的内存空间安排在了函数内部局部栈底减8的位置（占用4个字节）。
+
+　　第12～13行非常关键，对应着va_start ( ap, num )，这两行将第一个可变参数的地址赋值给了指针ap。另外，从第12行可以看出num的地址为ebp+0Ch；从第13行可以看出ap被分配在函数内部局部栈底减4的位置上（占用4个字节）。
+
+　　第22～27行最为关键，对应着va_arg (ap, int)。其中，22~24行的作用为将ap指向下一可变参数（可变参数的地址间隔为4个字节，从add eax,4可以看出）；25~27行则取当前可变参数的值赋给变量t。这段反汇编很奇怪，它先移动可变参数指针，再在赋值指令里面回过头来取先前的参数值赋给t（从mov edx,dword ptr [ecx-4]语句可以看出）。Visual C++同学玩得有意思，不知道碰见同样的情况Visual Basic等其它同学怎么玩？
+
+　　第36～41行恢复现场和堆栈地址，执行函数返回操作。
+
+　　痛苦的反汇编之旅差不多结束了，看了这段反汇编我们总算弄明白了可变参数的存放位置以及它们被读取的方式，顿觉全省轻松！
+
+　　2、特殊的调用约定 
+
+　　除此之外，我们需要了解C/C++函数调用对参数占用空间的一些特殊约定，因为在_cdecl调用协议中，有些变量类型是按照其它变量的尺寸入栈的。
+
+　　例如，字符型变量将被自动扩展为一个字的空间，因为入栈操作针对的是一个字。
+
+　　参数n实际占用的空间为( ( sizeof(n) + sizeof(int) - 1 ) & ~( sizeof(int) - 1 ) )，这就是第2.1节_INTSIZEOF(v)宏的来历！
+
+　　既然如此，前面给出的va_arg ( list, mode )宏为什么玩这么大的飞机就很清楚了。这个问题就留个读者您来分析。

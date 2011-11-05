@@ -1,0 +1,203 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:20:26+08:00
+
+====== 2 归并排序与快速排序的比较 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-7-12
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+
+1.          本文内容对应《算法导论》(第2版)》第2章和第7章。
+2.          比较了归并排序与快速排序之间的不同策略，启发对分治算法的深入思考。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+分治法
+有很多算法在结构上是递归的：为了解决一个给定的问题，算法要一次或多次地递归调用其自身来解决相关的子问题。这些算法通常采用分治策略（divide-and-conquier）：将原问题划分成n个规模较小而结构与原问题相似的子问题；递归地解决这些子问题，然后再合并其结果，就得到原问题的解。分治模式在每一层递归上都有三个步骤：
+²         分解（divide）：将原问题分解成一系列子问题；
+²         解决（conquer）：递归地解各子问题。若子问题足够小，则直接求解；
+²         合并：将子问题的结果合并成原问题的解。
+
+自底向上的归并排序
+
+归并排序算法完全依照分治模式，直观的操作如下：
+²         分解：将n个元素分成各含n/2个元素的子序列；
+²         解决：用归并排序法对两个子序列递归地排序；
+²         合并：合并两个已排序的子序列以得到排序结果。
+    观察下面的例子，可以发现：归并排序在分解时，只是单纯地将原问题分解为两个规模减半的子问题；在分解过程中，没有任何对原问题所含信息的利用，没有任何尝试对问题求解的动作；这种分解持续进行，直到子问题规模降足够小（为1），这时子问题直接得解；然后，自底向上地合并子问题的解，这时才真正利用原问题的特定信息，执行求解动作，对元素进行比较。
+4 2 5 7 1 2 6 3
+4 | 2  |  5 | 7   |   1 | 2  |  6 | 3
+4 2 5 7   |   1 2 6 3
+2 4  |  5 7   |   1 2  |  3 6
+4 2  |  5 7   |   1 2  |  6 3
+2 4 5 7   |   1 2 3 6
+4 | 2  |  5 | 7   |   1 | 2  |  6 | 3
+1 2 2 3 4 5 6 7
+这种自底向上分治策略的编程模式如下：
+如果问题规模足够小，直接求解，否则
+        单纯地分解原问题为规模更小的子问题，并持续这种分解；
+        执行求解动作，将子问题的解合并为原问题的解。
+    由于在自底向上的归并过程中，每一层需要进行i组n/i次比较，而且由于进行的是单纯的对称分解，总的层数总是lg n，因此，归并排序在各种情况下的时间代价都是Θ(n lg n)。试想，能够加大分组的力度，即每次将原问题分解为大于2的子问题，来降低运行时间？
+归并排序算法的代码如下：
+/*
+ * p: 左数组第一个元素下标
+ * q: 左数组最后一个元素下标
+ * r: 右数组最后一个元素下标
+ */
+void merge_no_sentinel(int *array, int p, int q, int r)
+{
+    int n1, n2, i, j, k;
+    int *left=NULL, *right=NULL;
+ 
+    n1 = q-p+1;
+    n2 = r-q;
+ 
+    left = (int *)malloc(sizeof(int)*(n1));
+    right = (int *)malloc(sizeof(int)*(n2));
+    for(i=0; i<n1; i++)
+    {
+                  left[i] = array[p+i];
+    }
+    for(j=0; j<n2; j++)
+    {
+                  right[j] = array[q+1+j];
+    }
+ 
+    i = j = 0;
+    k = p;
+    while(i<n1 && j<n2)
+    {
+                  if(left[i] <= right[j])
+                  {
+                        array[k++] = left[i++];
+                  }
+                  else
+                  {
+                        array[k++] = right[j++];
+                  }
+    }
+ 
+    for(; i<n1; i++)
+    {
+                  array[k++] = left[i];
+    }
+    for(; j<n2; j++)
+    {
+                  array[k++] = right[j];
+    }
+ 
+    free(left);
+    free(right);
+    left = NULL;
+    right = NULL;
+}
+ 
+void merge_sort(int *array, int p, int r)
+{
+    int q;
+ 
+    if(p < r)
+    {
+                  q = (int)((p+r)/2);
+                  merge_sort(array, p, q);
+                  merge_sort(array, q+1, r);
+                  merge_no_sentinel(array, p, q, r);
+    }
+}
+ 
+
+自顶向下的快速排序
+
+快速排序也是基于分治策略，它的三个步骤如下：
+²         分解：数组A[p..r]被划分为两个（可能空）子数组A[p..q-1]和A[q+1..r]，使得A[p..q-1]中的每个元素都小于等于A(q)，而且，小于等于A[q+1..r]中的元素，下标q也在这个分解过程中进行计算；
+²         解决：通过递归调用快速排序，对子数组A[p..q-1]和A[q+1..r]排序；
+²         合并：因为两个子数组是就地排序的，将它们的合并并不需要操作，整个A[p..r]已排序。
+    可以看到：快速排序与归并排序不同，对原问题进行单纯的对称分解；其求解动作在分解子问题开始前进行，而问题的分解基于原问题本身包含的信息；然后，自顶向下地递归求解每个子问题。可以通过下面的例子，观察快速排序的执行过程。由于在快速排序过程中存在不是基于比较的位置交换，因此，快速排序是不稳定的。
+4 2 5 7 1 2 6 | 3
+2 1 2   |   3   |   7 4 5 6
+1  |  2  |  2   |   3   |   4 5  |  6  |  7
+1  |  2  |  2   |   3   |   4 | 5  |  6  |  7
+这种自顶向下分治策略的编程模式如下：
+如果问题规模足够小，直接求解，否则
+        执行求解动作，将原问题分解为规模更小的子问题；
+        递归地求解每个子问题；
+        因为求解动作在分解之前进行，在对每个子问题求解之后，不需要合并过程。
+    快速排序的运行时间与分解是否对称有关，而后者又与选择了哪一个元素来进行划分有关。如果划分是对称的，则运行时间与归并排序相同，为Θ(n lg n)。如果每次分解都形成规模为n-1和0的两个子问题，快速排序的运行时间将变为Θ(n2)。快速排序的平均情况运行时间与其最佳情况相同，为Θ(n lg n)。
+快速排序算法的代码如下：
+void swap(int *a, int *b)
+{
+    int temp;
+ 
+    temp = *a;
+    *a = *b;
+    *b = temp;
+}
+ 
+/*
+ * p: 数组第一个元素的下标
+ * r: 数组最后一个元素的下标
+ * 返回值为分组后主元的下标
+ */
+int partition(int *array, int p, int r)
+{
+    int i, j, pivot;
+ 
+    pivot = array[r];
+    i = p-1;
+    for(j=p; j<=r-1; j++)
+    {
+                  if(array[j] <= pivot)
+                  {
+                         i++;
+                        swap(&array[i], &array[j]);
+                  }
+    }
+    swap(&array[i+1], &array[r]);
+   
+    return i+1;
+}
+ 
+void quick_sort(int *array, int p, int r)
+{
+    int q;
+ 
+    if(p < r)
+    {
+                  q = partition(array, p, r);
+                  quick_sort(array, p, q-1);
+                  quick_sort(array, q+1, r);
+    }
+}
+通常，我们可以向一个算法中加入随机化成分（参考第5章内容），以便对于所有输入，它均能获得较好的平均情况性能。将这种方法用于快速排序时，不是始终采用A[r]作为主元，而是从子数组A[p..r]中随机选择一个元素，即将A[r]与从A[p..r]中随机选出的一个元素交换。
+#include <stdlib.h>
+#include <time.h>
+ 
+int randomized_partition(int *array, int p, int r)
+{
+    int i;
+ 
+    srand(time(NULL));
+    i = rand()%(r-p)+p;
+    swap(&array[i], &array[r]);
+    return partition(array, p, r);
+}
+ 
+void randomized_quick_sort(int *array, int p, int r)
+{
+    int q;
+ 
+    if(p < r)
+    {
+                  q = randomized_partition(array, p, r);
+                  randomized_quick_sort(array, p, q-1);
+                  randomized_quick_sort(array, q+1, r);
+    }
+}
+ 
+ 

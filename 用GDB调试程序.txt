@@ -1,0 +1,205 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:31:39+08:00
+
+====== 用GDB调试程序 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-7-30
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+GDB是GNU开源组织发布的一个强大的UNIX下的程序调试工具。与VS下的图形界面形式的调试工具相比，GDB毫不逊色，使用更为自由。本文是学习使用GDB调试程序过程中的一些记录，主要参考《Using GNU's GDB Debugger》。
+
+示例代码
+ 
+#include <stdio.h>
+ 
+void func1(int *iptr);
+void func2();
+ 
+typedef struct ps
+{
+    int age;
+    char *name;
+} person;
+ 
+int main(int argc, char *argv[])
+{
+    int i;
+    int array[6] = {1,2,3,4,5,6};
+    char *name="pydeng";
+    person p={25, "cying"};
+ 
+    printf("There are %d args./n", argc);
+ 
+    func1(&i);
+    while(i--)
+    {
+          printf("Hello, %s./n", name);
+    }
+ 
+    return 0;
+}
+ 
+void func1(int *iptr)
+{
+    int a;
+ 
+    printf("In func1()./n");
+    a = 3;
+    *iptr = a;
+    func2();
+}
+ 
+void func2()
+{
+    int b;
+ 
+    b = 5;
+    printf("In func2()./n");
+}
+Makefile文件内容如下：
+gdb_test : gdb_test.c
+     cc -g -o $@ $^
+ 
+clean:
+     -rm -f gdb_test
+
+符号表
+ 
+l          符号即变量或函数。符号表负责变量或函数名到其内存地址的关联。没有符号表，GDB无法理解变量或函数名，如无法通过变量名查看变量。
+l          如果要为可执行文件产生符号表，需要在编译时使用gcc的-g或-ggdb选项。
+l          可以为-g或-ggdb选项指定产生的信息级别（1到3级），如-g3。级别越高，信息量越大。默认级别为2。
+
+进程地址空间
+ 
+高地址
+命令行参数和环境变量
+ 
+ 
+栈
+向下增长；
+ 
+未使用空间
+ 
+ 
+堆
+向上增长；
+ 
+未初始化数据段（BSS）
+未初始化全局变量，程序执行前初始化为0或NULL；
+ 
+已初始化数据段
+由exec从程序文件读取；
+低地址
+文本段
+由exec从程序文件读取；
+l          栈中保存了函数调用关系。每调用一个函数，分配一个栈帧，记录函数返回地址、传递的参数以及局部变量。
+l          可以使用GDB的backtrace（缩写为bt）命令查看栈信息。最前面的数字代表帧号。
+(gdb) bt
+#0  func2 () at gdb_test.c:35
+#1  0x080484a9 in func1 (iptr=0xbf98a2f0) at gdb_test.c:28
+#2  0x08048453 in main (argc=Cannot access memory at address 0xc) at gdb_test.c:14
+l          可以使用frame（缩写为f）命令查看当前栈帧，即当前所在的函数。
+l          GDB只能查看当前函数内的变量。如果要查看其它函数内的变量，需要切换栈帧，方法是为frame命令传递帧号。
+(gdb) p i
+No symbol "i" in current context.
+(gdb) frame 2
+#2  0x08048453 in main (argc=Cannot access memory at address 0xc) at gdb_test.c:14
+(gdb) p i
+$1 = 3
+
+运行程序
+ 
+l          要在GDB中运行程序，可以在shell中输入gdb ./filename。
+l          或者在运行GDB后，通过file命令打开程序。
+l          调用run（缩写为r）命令开始执行。可以为run命令传递命令行参数。set args命令撤销之前传递的参数。
+(gdb) run 1 2 3
+Starting program: /home/pydeng/gdb_test/gdb_test 1 2 3
+There are 4 args.
+l          调用kill（缩写为k）命令停止程序的执行，然后使用run重新运行。
+l          或者在程序运行的时候再次调用run命令，GDB将询问是否重新运行程序。
+
+查看代码
+ 
+l          可以使用list（缩写为l）命令显示当前位置后面的十行代码。加上负号则显示前面十行，如list -。
+l          可以以多种方式指定显示的位置，如：
+从第5行开始
+(gdb) list 5, 
+到28行结束
+(gdb) list ,28 
+显示21到25行之间的代码
+(gdb) list 21,25 
+显示func1函数
+(gdb) list func1 
+显示其它文件的12行
+(gdb) list otherfile.c:12 
+显示其它文件的函数
+(gdb) list otherfile.c:func
+l          可以通过set命令改变显示的代码行数，如set listsize 5。
+
+设置断点
+ 
+l          使用break命令设置断点，断点的位置可以通过四种方式指定。
+通过函数名指定
+(gdb) break func1 
+通过行号指定
+(gdb) break 9 
+通过文件名和行号指定
+(gdb) break main.c:10 
+通过内存地址指定
+(gdb) break *0x80483f4
+l          也可以在到达断点的时候，根据当前的位置设置断点。如break +2在当前位置后面第2行的位置设置断点，break -3在当前位置的前面第3行的位置设置断点。
+l          可以通过where命令查看当前所在的位置。
+l          可以为断点添加条件，只有当条件满足时才会在断点处暂停程序。
+(gdb) b 17 if i==1
+Breakpoint 8 at 0x8048455: file gdb_test.c, line 17.
+l          程序到达断点暂停后，可以使用continue命令恢复执行。
+l          或者使用step或next命令单步执行。两者的区别在于，step命令将进入被调用的函数，而next命令将函数调用看作一条语句。
+l          info breakpoints（缩写为i b）命令能够查看设置的所有端点。Num为断点号，Enb标识端点是否启用。
+(gdb) i b
+Num     Type           Disp Enb Address    What
+6       breakpoint     keep n   0x08048436 in main at gdb_test.c:12
+8       breakpoint     keep y   0x08048455 in main at gdb_test.c:17
+     stop only if i==1
+l          可以使用clear或delete命令删除断点，前者使用上述四种指定断点位置的方式标识断点，后者使用断点号标识断点。
+l          通过传递断点号，disable或enable命令能够暂时停用或重新启用断点。
+
+查看变量
+ 
+l          使用ptype（缩写为pt）命令查看变量的类型。要记住，只能查看当前栈帧内的变量。
+l          使用print（缩写为p）命令加变量名，可以查看变量的值，也可以使用取地址符查看变量的地址，并且能够指点显示的格式。
+ 
+o octal   x hex   d decimal  u unsigned decimal
+t binary  f float  a address  c char 
+ 
+(gdb) p /x i
+$3 = 0x1
+ 	 	 
+l          查看数组时，可以指定显示的元素起始位置和元素个数，但是不会检查是否越界。
+(gdb) p array[2]@5
+$4 = {3, 4, 5, 6, 134514064}
+l          也可以查看结构体。使用set print pretty命令优化显示格式。
+(gdb) p p
+$6 = {age = 25, name = 0x80485a7 "cying"}
+(gdb) set print pretty
+(gdb) p p
+$7 = {
+  age = 25,
+  name = 0x80485a7 "cying"
+}
+l          可以使用set或print命令，在程序执行过程中，改变变量的值，如set i = 5或print i = 5。两者区别在于，后者打印改变后的值。
+(gdb) set array[0]=11
+(gdb) p array[1]=22
+$8 = 22
+(gdb) p array
+$9 = {11, 22, 3, 4, 5, 6}
+
+在Emacs中使用GDB
+ 
+调用M-x gdb运行GDB。原来GDB也可以有类似VS那样的图形界面形式：）

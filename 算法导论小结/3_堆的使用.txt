@@ -1,0 +1,61 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:20:43+08:00
+
+====== 3 堆的使用 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-7-14
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《算法导论》(第2版)》第6章。
+2.          主要介绍了堆数据结构，以及相关的堆排序算法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+基本概念
+²         堆可以被视为一颗完全二叉树，树的每一层都是填满的，最后一层可能除外（最后一层从一个结点的左子树开始填）。
+²         二叉堆有最大堆和最小堆两种。在最大堆中，除根结点外，每个结点的值必须小于或等于其父结点的值。
+²         结点在堆中的高度定义为从该结点到叶子的最长简单下降路径上边的数目。堆得高度则为树根的高度。含有n个元素的堆的高度是lg n。
+²         堆结构上的一些基本操作的运行时间至多与堆的高度成正比，为O(lg n)。
+²         在高度为h的堆中，最多和最少的元素个数分别是2h+1-1和2h。
+
+堆的组织形式
+堆能够以数组形式组织。堆中每个结点与数组中存放该结点值的那个元素对应。结点之间的关系能够通过下标的计算获得，如下所示：
+/* i为结点在数组中的下标 */
+PARENT(i) = (i-1)/2;      /*父结点*/
+LEFT = 2i+1;            /* 左子结点 */
+RIGHT(i) = 2i+2;         /* 右子结点 */
+当用数组表示存储了n个元素的堆时，叶子结点的下标是n/2、n/2+1、…、n-1。当然，也可以将结点定义为结构体，并使用指针连接父子结点。
+
+堆的基本操作
+²         MAX-HEAPIFY，是保持最大堆性质的关键和其它操作的基础。其输入为一个数组A和下标i。MAX-HEAPIFY假定以LEFT(i)和RIGHT(i)为根的两棵子树都是最大堆，但是A[i]可能小于其子结点。因此，MAX-HEAPIFY让A[i]在最大堆中下降，使以i为根的子树成为最大堆。其运行时间与堆的高度成正比，为O(lg n)
+MAX-HEAPIFY(A, i)
+ 1 l ← LEFT(i)
+ 2 r ← RIGHT(i)
+ 3 if l ≤ heap-size[A] and A[l] > A[i]
+ 4    then largest ← l
+ 5    else largest ← i
+ 6 if r ≤ heap-size[A] and A[r] > A[largest]
+ 7    then largest ← r
+ 8 if largest ≠ i
+ 9    then exchange A[i] ↔ A[largest]
+10         MAX-HEAPIFY(A, largest)
+²         BUILD-MAX-HEAP，以线性时间运行，可以在无序的输入数组基础上构造出最大堆。下标从n/2到n-1的叶子结点可以被看成是只有一个结点的最大堆，满足MAX-HEAPIFY操作的假定条件。因此，对下标为n/2-1递减到0的结点依次调用MAX-HEAPIFY，可以自底向上地构建最大堆。
+BUILD-MAX-HEAP(A)
+1  heap-size[A] ← length[A]
+2  for i ← ⌊length[A]/2⌋-1 downto 0
+3       do MAX-HEAPIFY(A, i)
+
+堆排序
+堆排序算法先用BUILD-MAX-HEAP将输入数组构成一个最大堆。因为数组中最大元素在根A[0]，可以通过吧它和A[n-1]呼唤来达到最终正确的位置。然后，从堆中去掉结点A[n-1]，使堆大小减1.原来根的子树都是最大堆，而新的根可能违背了最大堆性质。这时调用MAX-HEAPIFY(A,0)就可以保持最大堆性质，在A[0..n-2]中构造出大小为n-1的最大堆。堆排序不断重复这个过程，使堆的大小由n-2一直降到2。其中调用BUILD-MAX-HEAP的时间为O(n)，n-1次MAX-HEAPIFY调用中每一次的时间代价为O(lg n)，因此，堆排序的时间代价为O(n lg n)。
+HEAPSORT(A)
+1 BUILD-MAX-HEAP(A)
+2 for i ← length[A] downto 1
+3    do exchange A[0] ↔ A[i]
+4       heap-size[A] ← heap-size[A] - 1
+5       MAX-HEAPIFY(A, 0)

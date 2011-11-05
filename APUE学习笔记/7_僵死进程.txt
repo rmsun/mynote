@@ -1,0 +1,92 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:53:49+08:00
+
+====== 7 僵死进程 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-15
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第8章。
+2.          总结了进程终止方式和僵死进程的概念，以及使用wait函数获取子进程的终止状态。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+进程终止方式
+进程有5种正常终止方式：
+l          在main函数内执行return语句。
+l          调用exit函数。此函数由ISO C定义，其操作包括调用各终止处理程序（用atexit函数注册），然后关闭所有标准IO流等。
+l          调用_exit或_Exit函数，并不运行终止处理程序和信号处理程序。
+l          进程的最后一个线程在其启动例程中执行返回语句。但是，该线程的返回值不会用作进程的返回值，进程以终止状态0返回。
+l          进程的最后一个线程调用pthread_exit函数，进程终止状态总是0。
+以及3种异常终止方式：
+l          调用abort函数，产生SIGABRT信号。
+l          接收一个信号并终止。
+l          最后一个线程对取消请求做出响应。
+
+僵死进程
+一个已经终止，但是其父进程尚未对其进行善后处理（即获取终止子进程的有关信息，释放它仍占用的资源）的进程被称为僵死进程（zombie）。内核为每个终止子进程保存了一定量的信息，这些信息至少包括进程ID，进程的终止状态，以及该进程使用的CPU时间总量，所以当终止进程的父进程调用wait或waitpid时（也就是大家常说的收尸或是超度），可以得到这些信息。同时，内核释放终止进程所使用的所有存储区，关闭其所有打开文件，僵死进程不可能再借尸还魂。
+如果父进程在子进程之前终止，那么子进程将得不到超度，永远残留在内存中（参考仙剑3的龙葵姑娘）。为了避免发生这样的悲剧，所有这些子进程将由init进程（ID为1，在自举结束时由内核调用）领养。其过程大致如下：在一个进程终止时，内核逐个检查所有活动进程，以判断它是否是正要终止进程的子进程，如果是，则将该进程的父进程ID更改为1。无论何时，只要有一个子进程终止，init进程就会调用一个wait函数取其终止状态，从而防止了在系统中存在很多僵死进程。
+如果一个进程fork一个子进程，但不要它等待子进程终止，也不希望子进程处于僵死状态直到父进程终止，实现这一要求的技巧是调用fork两次。让原先的子进程成为孙子进程，并让其父进程英年早逝，从而交由init进程领养。其祖父进程则不再负责孙子进程的超度工作。
+
+wait
+ 
+ 
+父进程调用wait完成子进程的超度。如果所有子进程都还在运行，则wait阻塞。如果任意一个子进程终止，正等待父进程获取其终止状态，则取得该子进程的终止状态，并返回该子进程ID。如果没有任何子进程，则wait立即出错返回。与wait不同，waitpid可等待一个指定的进程，提供一个非阻塞版本，并且支持资源控制。wait得到的子进程终止状态可由WIFEXITED宏测试是否为正常终止，或由WIFSIGNALED宏测试是否为异常终止。正常终止时，可用WEXITSTATUS宏获取传递给exit参数的低8位。异常终止时，可由WTERMSIG宏获取使子进程终止的信号编号。
+         实验程序如下：
+int main()
+{
+     pid_t pid;
+     int stat;
+ 
+     printf("parent pid=%d/n", getpid());
+     if((pid = fork()) < 0)
+     {
+       printf("fork first child error./n");
+       exit(1);
+     }
+     else if(pid == 0)
+     {
+       if((pid = fork()) < 0)
+       {
+            printf("fork second child error./n");
+            exit(1);
+       }
+       else if(pid > 0)
+       {
+            printf("first child pid=%d ppid=%d/n", getpid(), getppid());
+            abort();
+       }
+       sleep(1);
+       printf("second child pid=%d ppid=%d/n", getpid(), getppid());
+       exit(0);
+     }
+     sleep(2);
+     if(waitpid(pid, &stat, 0) != pid)
+     {
+       printf("wait first child error./n");
+       exit(1);
+     }
+     if(WIFEXITED(stat))
+     {
+       printf("wait %d success: normal termination, exit status=%d/n",
+          pid, WEXITSTATUS(stat));
+     }
+     else if(WIFSIGNALED(stat))
+     {
+       printf("wait %d success: abnormal termination, signal number=%d/n",
+          pid, WTERMSIG(stat));
+     }
+     exit(0);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+parent pid=6262
+first child pid=6263 ppid=6262
+second child pid=6264 ppid=1
+wait 6263 success: abnormal termination, signal number=6

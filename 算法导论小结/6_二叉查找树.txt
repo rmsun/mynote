@@ -1,0 +1,175 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:21:33+08:00
+
+====== 6 二叉查找树 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-7-19
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《算法导论》(第2版)》第12章。
+2.          主要介绍了二叉查找树的基本概念，及其所支持的多种动态集合操作，为红黑树的学习做好准备。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+二叉查找树
+一棵二叉查找树（BST，binary search tree）与堆数据结构有些类似，都以二叉树结构进行组织，但前者在结构上的限制更为宽松。树中每一个结点都是一个对象，除了关键字key域外，还包含了指向左子结点、右子结点和父结点的指针。二叉查找树中关键字的存储方式总是满足二叉查找树性质，即对于结点x的左子树中的任意结点y，要求y.key＜x.key；对于结点x的右子树中的任意结点y，要求y.key≥x.key。二叉查找树的构建可以通过后面的插入操作完成。
+typedef struct node
+{
+    int key;
+    struct node *left;
+    struct node *right;
+    struct node *parent;
+} bst_node;
+
+二叉树遍历
+l          中序遍历(Inorder)：根据二叉查找树的性质，中序遍历将按排列顺序输出树中的所有关键字。
+void inorder_tree_walk(bst_node *root)
+{
+    if(root != NULL)
+    {
+          inorder_tree_walk(root->left);
+         printf("%d(r) ", root->key);
+          inorder_tree_walk(root->right);
+    }
+}
+l          前序遍历(Preorder)：根的关键字在其左右子树中的关键字之前输出。
+l          后序遍历(Postorder)：根的关键字在其左右子树中的关键字之后输出。
+
+查询二叉查找树
+最常见的查询操作是根据关键字查找树中的某个结点，除此之外，二叉查找树还支持最大关键字结点、最小关键字结点、前趋和后继等查询。对于高度为h的二叉查找树，它们都可以在O(h)时间内完成。
+l          关键字查询：该过程从树的根结点开始进行查找，并沿着树下降。对碰到的每个结点，比较其关键字。如果两个关键字相同，则查找结束；如果结点关键字大于查询关键字，则继续查找结点的左子树；如果结点关键字小于或等于查询关键字，则继续查找结点的右子树。
+bst_node * tree_search(bst_node *root, int value)
+{
+    bst_node *temp_node=NULL;
+ 
+    temp_node = root;
+    while(temp_node!=NULL && temp_node->key!=value)
+    {
+          if(value < temp_node->key)
+              temp_node = temp_node->left;
+          else
+              temp_node = temp_node->right;
+    }
+   
+    return temp_node;
+}
+l          最大关键字结点：要查找二叉树中具有最大关键字的结点，只要从根结点开始，沿着各结点的right指针查询下去，直到遇到NULL为止。
+bst_node *tree_maximum(bst_node *root)
+{
+    bst_node *max_node=NULL;
+ 
+    max_node = root;
+    while(max_node->right != NULL)
+          max_node = max_node->right;
+ 
+    return max_node;
+}
+l          最小关键字结点：要查找二叉树中具有最小关键字的结点，只要从根结点开始，沿着各结点的left指针查询下去，直到遇到NULL为止。
+bst_node * tree_minimum(bst_node *root)
+{
+    bst_node *min_node=NULL;
+ 
+    min_node = root;
+    while(min_node->left != NULL)
+          min_node = min_node->left;
+ 
+    return min_node;
+}
+l          前趋结点：给定一个二叉查找树中的结点，它的前趋结点是在中序遍历顺序下它的前一个结点。如果给定查询结点的左子树不为空，则它的前趋结点是左子树中的最大关键字结点；如果左子树为空，需要向上判断每一个父结点，直到父结点为空或者遍历结点是父结点的右子结点时，根据中序遍历性质，该父结点即为查询结点的前趋。
+bst_node * tree_predecessor(bst_node *node)
+{
+    bst_node *pre_node=NULL, *temp_node=NULL;
+ 
+    if(node->left != NULL)
+          return tree_maximum(node->left);
+ 
+    pre_node = node->parent;
+    temp_node = node;
+    while(pre_node!=NULL && temp_node==pre_node->left)
+    {
+          temp_node = pre_node;
+          pre_node = temp_node->parent;
+    }
+ 
+    return pre_node;
+}
+l          后继结点：与前趋结点相反，它是在中序遍历顺序下的后一个结点。如果给定查询结点的右子树不为空，则它的后继结点是右子树中的最小关键字结点；如果右子树为空，需要向上判断每一个父结点，直到父结点为空或者遍历结点是父结点的左子结点时，则该父结点即为查询结点的后继。
+bst_node * tree_successor(bst_node *node)
+{
+    bst_node *suc_node=NULL, *temp_node=NULL;
+ 
+    if(node->right != NULL)
+          return tree_minimum(node->right);
+ 
+    suc_node = node->parent;
+    temp_node = node;
+    while(suc_node!=NULL && temp_node==suc_node->right)
+    {
+          temp_node = suc_node;
+          suc_node = temp_node->parent;
+    }
+ 
+    return suc_node;
+}
+
+插入与删除操作
+插入操作从根结点开始，沿树下降，并不断比较当前结点与要插入结点的关键字，以决定向左转或向右转，直到当前结点为空，这个空所在的位置即是将要插入的位置。最后，修改插入结点的父结点指针，并根据与父结点关键字的比较结果，修改父结点的子结点指针。如果父结点为空，说明二叉查找树是空的，这时，将新插入结点作为树的根结点。由于每次都将新结点插入到叶子结点的位置，通过这种插入操作构建的二叉查找树往往很不平衡，高度值较大，使得查询操作的运行时间较大。
+void tree_insert(bst_node **root, bst_node *node)
+{
+    bst_node *x_node=NULL, *y_node=NULL;
+ 
+    x_node = *root;
+    while(x_node != NULL)
+    {
+          y_node = x_node;  /*y最终存储x的父结点*/
+          if(node->key < x_node->key)
+              x_node = x_node->left;
+          else
+              x_node = x_node->right;
+    }
+ 
+    node->parent = y_node;
+    if(y_node == NULL)     /*二叉查找树为空*/
+          *root = node;  /*empty tree*/
+    else if(node->key < y_node->key)
+          y_node->left = node;
+    else
+          y_node->right = node;
+}
+删除操作有三种情况：1）如果要删除的结点没有子结点，则只要修改其父结点的对应子结点指针为空；2）如果要删除的结点只有一个子结点，则可以通过其子结点与其父结点间建立一条链接来删除该结点；3）如果要删除的结点有两个子结点，可以先删除该结点的后继结点（这里的后继结点一定在右子树中，并且该后继结点不可能有左子结点），再用后继结点的内容来替换要删除结点的内容（实际上，这里使用前趋结点来替换也是可行的）。下面的操作分为四个步骤：1）确定要删除的结点；2）确定要删除结点的子结点，这里，要么没有子结点，要么只有一个；3）在要删除结点的父子结点之间建立链接，如果父结点为空，说明要删除的是树的根结点；4）如果删除的是后继结点，则进行内容替换。
+/*返回被删除的结点*/
+bst_node * tree_delete(bst_node **root, bst_node *node)
+{
+    bst_node *x_node=NULL, *y_node=NULL;
+    /*步骤1*/
+    if(node->left==NULL || node->right==NULL)
+                  y_node = node;
+    else
+                  y_node = tree_successor(node);
+    /*步骤2*/
+    if(y_node->left != NULL)
+                  x_node = y_node->left;
+    else
+                  x_node = y_node->right;
+    /*步骤3*/
+    if(x_node != NULL)
+                  x_node->parent = y_node->parent;
+    if(y_node->parent == NULL)   /*如果删除的是根结点，将其子结点作为新的根*/
+                  *root = x_node;        
+    else if(y_node == y_node->parent->left)
+                  y_node->parent->left = x_node;
+    else
+                  y_node->parent->right = x_node;
+    /*步骤4*/
+    if(y_node != node)  /*y_node is node's successor*/
+                  node->key = y_node->key;
+ 
+    return y_node;
+}
+插入与删除操作的运行时间也是O(h)。

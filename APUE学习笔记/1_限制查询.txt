@@ -1,0 +1,64 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:51:36+08:00
+
+====== 1 限制查询 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-7
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          学习linux环境下的编程，《UNIX环境高级编程》（行话叫APUE）应该是必读的一本书。毫无疑问，APUE可以作为API的参考手册。但是，个人认为书中的许多概念和思想仍然需要细细揣摩。细节的积累，一来是良好模式设计的基础，二来为学习内核知识提供了上层视角。读书笔记的目的正在于此，而linux开放、自由的思想始终是一种原动力。
+2.          APUE.2e及其源码可以从这里下载。源码在linux下的编译需要做几处修改，可以参考《在Linux下编译APUE的例子》。我使用的系统是Ubuntu 9.04（linux-2.6.29.3，gcc-4.3.3）。
+3.          关于Makefile和GDB的使用，可以参考《Makefile备忘录》和《用GDB调试程序》
+4.          本文内容对应《UNIX环境高级编程》(第2版)》第2章。
+5.          主要记录了查询系统限制的3个函数：sysconf，pathconf和fpathconf。虽然，在学习的开始阶段，过多的考虑各个标准和不同系统之间的限制和差异，会让人举步维艰，但是至少应该知道它们的存在。这是编写高可移植性代码的重要组成部分。
+6.          如果你和我一样，是linux世界的入门选手（俗称菜鸟），那么让我们共同努力吧：）
+
+几个标准
+l          ISO C，它的意图是提供C程序的可移植性，使其能适合于大量不同的操作系统，而不只是UNIX系统。此标准不仅定义了C程序设计语言的语法和语义，还定义了其标准库。
+l          POSIX（Portable OOperating System Interface），指的是可移植的操作系统接口。该标准的目的是提高应用程序在各种UNIX系统环境之间的可移植性，定义了“依从POSIX”的操作系统必须提供的各种服务。
+l          SUS（Single UNIX Specification），是POSIX标准的一个超集，定义了一些附加的接口，扩展了基本的POSIX.1规范所提供的功能。相应的系统接口全集被成为X/Open系统接口（XSI，X/Open System Interface）。只有遵循XSI的实现才能成为UNIX系统。
+到目前为止，对这些标准毫无头绪。等碰到哪个Undefined函数再说吧：）
+
+系统限制
+了解系统限制的最主要目的是，保证应用程序可移植性。这些限制主要分为两类：编译时限制和运行时限制。编译时限制可在头文件中定义，如ISO C标准在文件<limits.h>中关于类型最大值和最小值的限制。运行时限制则要求进程调用一个函数以获得这种限制，主要包含使用sysconf函数查询的不与文件或目录相关联的运行时限制，以及使用pathconf或fpathconf函数查询的与文件或目录相关联的运行时限制。实际上，这种说法并不准确。编译时限制仍然能够通过函数进行查询，如sysconf(_SC_CHAR_MAX)，而通过以上三个函数查询的限制也可以定义在头文件中。或许只有那些由内核通过proc文件系统进行读取或配置的才能称为运行时限制。可以在终端中输入下面命令，找出这些限制。
+$ find /proc/sys -name '*max*'
+这里，希望记住的只是如何利用上述函数查询系统限制。
+#include <unistd.h>
+long sysconf(int name);
+long pathconf(const char *pathname, int name);
+long fpathconf(int filedes, int name);
+其中，sysconf函数所使用的name参数以_SC_开头，pathconf和fpathconf函数所使用的name参数以_PC_开头，它们都用于标识系统限制，可以在man中查询各标识代表的具体限制。pathconf和fpathconf函数都用于查询与文件或目录相关的限制，区别在于前者使用路径名作为参数，后者使用文件描述符作为参数。至于应该指向文件还是目录，由name标识的限制决定，仍然可以参考man手册。正常情况下，三个函数将返回限制的具体值。如果name参数不是一个已定义的常量，则三个函数都返回－1，并将errno设置为EINVAL。有些系统限制是不确定的，这时，三个函数同样返回－1，但是不改变errno的值。因此，要区分后两种情况，需要结合返回值和errno进行判断。函数的使用范例如下：
+#include <stdio.h>
+#include <unistd.h>
+#include <errno.h>
+ 
+#define NAME_MAX_GUESS 255  /*限制不确定时使用*/
+ 
+int main()
+{
+     int namemax=0;
+    
+     errno = 0;             /*先置0，然后判断是否被改变*/
+     if((namemax=pathconf("/", _PC_NAME_MAX)) < 0)
+     {
+       if(errno == 0)
+       {
+            printf("_PC_NAME_MAX is inderterminate./n");
+            namemax = NAME_MAX_GUESS;
+       }
+       else
+       {
+            printf("pathconf error for _PC_NAME_MAX./n");
+       }
+     }
+     printf("namemax=%d./n", namemax);
+    
+     return 0;
+}

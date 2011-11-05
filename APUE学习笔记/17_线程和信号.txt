@@ -1,0 +1,107 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:57:26+08:00
+
+====== 17 线程和信号 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-22
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第12章。
+2.          总结了如何设置线程的信号屏蔽字，以及如何使用专用线程进行信号处理。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+线程的信号屏蔽字
+每个线程都有自己的线程屏蔽字，但是信号处理函数是进程中所有线程共享的。这意味着尽管单个线程可以阻止某些信号，但当线程修改了与某个信号相关的处理行为后，所有的线程都必须共享这个处理行为的改变。
+         进程中的信号是递送到单个线程的。如果信号与硬件故障或定时器超时相关，该信号就被发送到引起该事件的线程中去，而其它的信号则被发送到任意一个线程。但要注意，闹钟定时器是进程资源，并且所有的线程共享相同的alarm，所以进程中的多个线程不可能互不干扰地使用闹钟定时器。
+         线程必须使用pthread_sigmask函数，替代进程使用的sigprocmask，为自己设置信号屏蔽字。两个函数的区别在于，pthread_sigmask函数在失败时返回错误码，而不像sigprocmask那样设置errno并返回-1。
+#include <pthread.h>
+int pthread_sigmask(int how, const sigset_t *restrict set, sigset_t *restrict oset);
+                                             Return: 0 if OK, error number on failure
+
+sigwait
+ 
+ 
+线程可以通过调用sigwait等待一个或多个信号发生。set参数指出了线程等待的信号集，signop指向的整数表明接收到的信号值。如果信号集中的某个信号在sigwait调用的时候处于未决状态，那么sigwait将无阻塞地返回，在返回之前，sigwait将从进程中移除那些处于未决状态的信号。
+#include <pthread.h>
+int sigwait(const sigset_t *restrict set, int *restrict signop);
+                                             Return: 0 if OK, error number on failure
+为了避免错误动作发生，线程在调用sigwait之前，必须阻塞那些它正在等待的信号。sigwait函数会自动取消信号集的阻塞状态，直到有新的信号被传递。在返回之前，sigwait将恢复线程的信号屏蔽字，这与sigsuspend函数类似。如果信号在sigwait调用的时候没有被阻塞，在完成对sigwait调用之前会出现一个时间窗，在这个窗口期，某个信号可能在线程完成sigwait调用之前就被递送了。
+使用sigwait的好处在于它可以简化信号处理，允许把异步产生的信号用同步的方式处理。为了防止信号中断线程，可以把信号 加到每个线程的信号屏蔽字中，然后安排专用线程作信号处理。这个专用线程可以进行任何函数调用，不需要担心在信号处理函数中调用哪些函数是可重入的，因为这些函数调用来自正常的线程环境，能够知道在何处被中断并继续执行。
+         范例程序如下：
+#include "apue.h"
+#include <pthread.h>
+ 
+int         quitflag;   /* set nonzero by thread */
+sigset_t    mask;
+ 
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t wait = PTHREAD_COND_INITIALIZER;
+ 
+void * thr_fn(void *arg)    /*专用的信号处理线程*/
+{
+    int err, signo;
+ 
+    for (;;) {
+        err = sigwait(&mask, &signo);  /*signo表明接收的信号值*/
+        if (err != 0)
+            err_exit(err, "sigwait failed");
+        switch (signo) {
+        case SIGINT:        /*在线程环境中处理信号，而不使用信号处理函数*/
+            printf("/ninterrupt/n");
+            break;
+ 
+        case SIGQUIT:
+            pthread_mutex_lock(&lock);
+            quitflag = 1;   /*修改退出标志*/
+            pthread_mutex_unlock(&lock);
+            pthread_cond_signal(&wait);
+            return(0);
+ 
+        default:
+            printf("unexpected signal %d/n", signo);
+            exit(1);
+        }
+    }
+}
+int main(void)
+{
+    int         err;
+    sigset_t    oldmask;
+    pthread_t   tid;
+ 
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGQUIT);
+    if ((err = pthread_sigmask(SIG_BLOCK, &mask, &oldmask)) != 0)
+        err_exit(err, "SIG_BLOCK error");                /*设置线程信号屏蔽字*/
+ 
+    err = pthread_create(&tid, NULL, thr_fn, 0); /*创建线程时，新线程继承信号屏蔽字*/
+    if (err != 0)
+        err_exit(err, "can't create thread");
+ 
+    pthread_mutex_lock(&lock);
+    while (quitflag == 0)   /*主线程并不处理SIGQUIT信号，而使用条件变量判断是否退出*/
+        pthread_cond_wait(&wait, &lock);
+    pthread_mutex_unlock(&lock);
+ 
+    /* SIGQUIT has been caught and is now blocked; do whatever */
+    quitflag = 0;
+ 
+    /* reset signal mask which unblocks SIGQUIT */
+    if (sigprocmask(SIG_SETMASK, &oldmask, NULL) < 0)
+        err_sys("SIG_SETMASK error");
+    exit(0);
+}
+
+给线程发送信号
+要把信号发送到进程，可以调用kill。要把信号发送到线程，可以调用pthread_kill。可以传一个0值的signo来检查线程是否存在。如果信号的默认处理动作是终止该进程，那么把信号传递给某个线程仍然会杀掉整个进程。
+#include <pthread.h>
+int pthread_kill(pthread_t thread, int signo);
+                                             Return: 0 if OK, error number on failure

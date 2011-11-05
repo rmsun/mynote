@@ -1,0 +1,80 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:54:08+08:00
+
+====== 8 执行程序 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-15
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第8章。
+2.          总结了如何使用exec函数族为新创建的进程执行程序。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+exec
+ 
+ 
+fork函数创建子进程后，子进程往往要调用一种exec函数以执行另一个程序。当进程调用一种exec函数时，该进程执行的程序完全替换为新程序，包括进程的正文、数据、堆和栈，而新程序则从其main函数开始执行。因为调用exec并不创建新进程，所以前后的进程ID并未改变。在执行exec前后实际用户ID和实际组ID也保持不变，但有效ID是否改变取决于所执行程序文件的设置用户ID位和设置组ID位是否设置。
+         有6种不同的exec函数可供使用：
+#include <unistd.h>
+int execl(const char *pathname, const char *arg0, ... /* (char *)0 */ );
+int execv(const char *pathname, char *const argv []);
+int execle(const char *pathname, const char *arg0, .../* (char *)0,  char *const envp[] */ );
+int execve(const char *pathname, char *const argv[], char *const envp []);
+int execlp(const char *filename, const char *arg0, ... /* (char *)0 */ );
+int execvp(const char *filename, char *const argv []);
+它们的区别在于：
+l          前4个函数取路径名作为参数，后两个则取文件名作为参数。当取文件名作为参数时：如果filename中包含/，则将其视为路径名；否则就按PATH环境变量，在它所指定的各目录中搜寻可执行文件。
+l          带字母l的函数execl、execlp和execle要求将新程序的每个命令行参数都说明为一个单独的参数。这种参数表以空指针结尾。另外三个带字母v的函数execv、execvp和execve，则先构造一个指向各参数的指针数组，然后将该数组地址作为参数。
+l          以e结尾的两个函数execle和execve可以传递一个指向环境字符串指针数组的指针，而其它四个函数则使用调用进程中的environ变量为新程序复制现有的环境。可以使用setenv和putenv函数更改当前环境和后面生成德子进程的环境，但不影响父进程的环境。
+实验程序如下：
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/wait.h>
+ 
+char *env_init[] = {"MYVAL=unknown", "PATH=/tmp", NULL};
+ 
+int main()
+{
+     pid_t pid;
+     int status;
+ 
+     if( (pid = fork()) < 0)
+     {
+       fputs("fork error./n", stdout);
+       exit(EXIT_FAILURE);
+     }
+     else if(pid == 0)
+     {
+       if( execle("/bin/ls", "ls", "/", (char *)0, env_init) < 0)
+       {
+            fputs("exec error./n", stdout);
+            exit(EXIT_FAILURE);
+       }
+     }
+     if( waitpid(pid, &status, 0) != pid)
+     {
+       fputs("waitpid error./n", stdout);
+       exit(EXIT_FAILURE);
+     }
+     fputs("waitpid success./n", stdout);
+     exit(EXIT_SUCCESS);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+bin   cdrom  etc   initrd.img       lib          media  opt   root  selinux 
+sys  usr  vmlinuz
+boot  dev    home  initrd.img.old  lost+found  mnt    proc  sbin  srv   
+tmp  var  vmlinuz.old
+waitpid success.
+
+文件的执行时关闭标志
+ 
+进程中每个打开文件描述符都有一个执行时关闭（close-on-exec）标志FD_CLOEXEC。若此标志设置，则在执行exec时关闭该描述符，否则该描述符仍打开。除非特地用fcntl函数设置了该标志，否则系统的默认操作是在执行exec后仍保持这种描述符打开。

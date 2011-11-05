@@ -1,0 +1,245 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:42:48+08:00
+
+====== UNIX环境下如何应用消息队列实现进程间通信 ======
+Created Thursday 20 October 2011
+
+中国银行陕西省分行 
+胡旋
+一、引言
+----进入九十年代后,随着计算机和网络技术的发展,很多数据处理系统都采用开放系统结构的客户机/服务器网络模式。即客户机提出任务请求,由服务器做相应处理,执行被请求的任务,然后将结果返回给客户机。例如:银行ATM的前置机和数据处理的主机之间即构成客户机/服务器模式;电话银行的前置机和银行数据处理主机之间也构成这种模式结构。还有POS等。这样,各种应用的请求是很频繁的，数据主机在处理通存通兑,ATM,电话银行,POS等各种请求时,如果没有相应机制的控制,数据将出现混乱,有可能产生透支,也有可能处理密码已改变的帐户.。数据的完整性,安全性无法控制。而消息队列正是解决这一问题的有力工具。它使主机在处理各种请求时,按照先后顺序有条不紊地进行，保证了数据的一致性和安全性。
+二、基本概念
+----1.队列
+----队列是信息的线性表,它的访问次序是先进先出(FIFO)。也就是说,置入队列中的第一个数据项将是从队列中第一次读出的数据项,置入的第二项将是读出的第二项,依此类推。这是队列允许的唯一存取操作,其它随机访问是不允许的。这种数据结构保证对数据资源的请求将严格按照先后顺序进行,因而可用于对事件的调度并起到I/O缓冲的作用。
+
+----2.报文
+
+----发送进程和接收进程进行信息的交换,一般是通过将信息划分为若干段放入数据交换缓冲器中,进程间通过对该缓冲器的存取来实现通信。因此,数据是以不连续的形式在进程间传送，这些不连续的部分就叫报文。
+
+----3.消息队列
+
+----将报文按队列的结构进行组织就叫消息队列。该队列用于存放正被发送或接收的每一个报文的标题信息。每一个消息队列还对应有一个数据结构，它含有消息队列的存取权限,和消息队列的当前状态信息等信息。消息队列可进行"发送"和"接收"操作。
+
+三、消息队列的编程要点及运作过程
+----1.消息队列的创建
+----在报文能够发送和接收之前,必须创建一个能够唯一被识别出的消息队列和数据结构,这个被创建的唯一标识符叫做消息队列描述符(msqid)，用来识别或引用相关的消息队列和数据结构。用msgget(longkey,intmsgflg)系统调用来创建消息队列，其中key是一个长整型,可由用户设定也可通过ftok()获得。msgflg的值是八进制的消息队列操作权和控制命令的组合。操作权定义为：
+
+  操作允许权       八进制整数
+  用户可读         0400
+  用户可写         0200
+  同组可读         0040
+  同组可写         0020
+  其它可读         0004
+  其它可写         0002
+
+----操作权可相加而派生，如用户可"读"、"写"的权限为0400|0200=0600。控制命令可取IPC_CREAT或IPC_EXCL。如果要创建一个key=888且属主和同组可读写的消息队列,执行以下系统调用msgget(0x888,0660|IPC_CREAT)。创建后可用ipcs命令看到以下信息:
+IPC status from /dev/mem as of Sun
+  Jan 25 06:49:52 1970
+T   ID   KEY  MODE     OWNER  GROUP
+Message Queues:
+. q   7 0x00000888 --rw-rw----
+   root  system
+...
+
+----它的消息队列描述符是7,属主是root,同组是system,存取权是属主、用户可读写。如果执行msgget(0x888,0660|IPC_CREAT)时,与0x888对应的消息队列已存在，则返回该消息队列的描述符msqid。
+----2.消息的发送
+
+----消息队列一经创建即可用msgsnd(int msqid, void *msgp, size_t msgsz, int msgflg)发送消息。msgqid是经msgget创建的消息队列描述符，msgp是指向消息段的指针，该指针所指结构含有报文类型和要发送或接收的报文:
+
+  struct msgbuf {
+      long mtype;/*消息类型*/
+      char mtext[512];
+   /* 消息正文,512暂定为消息段的大小*/
+  }
+
+----msgsz是msgp参量指向的数据结构中字符数组的长度,即报文长度,最大值由MSGMAX确定。msgflg是当消息队列满时(队列中无空闲空间),系统要采取的行动.如果msgflg&IPC_NOWAIT=真，调用进程立即返回，不发送该消息。如果msgflg&IPC_NOWAIT=假，调用进程暂停执行,处于"挂起"状态,且不发送该消息。直到下列情况之一出现:
+-----引起暂停的条件不再存在,如队列出现空闲,即可发送
+-----该消系队列被从系统中删去
+-----调用进程接收到一个要捕捉的信号,如中断信号,此时不发送消息,调用进程按signal中描述的方式执行。
+
+----如果msgsnd返回0则发送成功。返回-1则表示发送失败，错误类型可具体查看errno。
+
+----3.消息的接收
+
+---- 用 msgrcv(int msqid, void *msgp, size_t msgsz, long msgtyp, int msgflg)系统调用从msqid消息队列中读取一条信息并将其放入消息段指针msgp指向的结构。msgsz给出mtext的字节数,如果所接收的消息比msgsz大且msgflg&MSG_NOERROR为真，则按msgsz的大小截断而不通知调用进程。msgtyp指定要求的消息类型:
+
+----msgtyp=0接收消息队列中的第一个报文
+----msgtyp>0接收消息队列中的类型为msgtyp的第一个报文
+----msgtyp<0接收消息队列中小于等于msgtyp绝对值的最低类型的第一个报文
+
+----当队列上没有所期望类型的消息或消息队列为空时msgflg指出调用进程要采取的行动:如果msgflg&IPC_NOWAIT为真,则调用进程立即结束并返回-1。如msgflg&IPC_NOWAIT为假,则调用进程暂停执行直至出现：
+
+-----队列中放入所需类型的消息,调用进程接收该消息
+-----msqid消息队列从系统中删除
+-----调用进程接收到捕获的信号,此时不接收消息,调用进程按signal描述的方式执行。
+
+----如果msgrev执行成功，则返回放入mtext中的字节数,失败返回-1,错误类型可查errno。
+
+----4.消息队列的控制和撤销
+
+----用msgctl(intmsqid,intcmd,structmsqid_ds*buf)系统调用实现对消息队列的控制。msgqid必须是用msgget创建的消息队列描述符。cmd可以是：
+
+----IPC_STAT查看消息队列的状态,结果放入buf指针指向的结构
+----IPC_SET为消息队列设置属主标识,同组标识,操作允许权,最大字节数
+----IPC_RMID删除指定的msqid以及相关的消息队列和结构
+
+四、编程示例
+----下面给出一个运用消息队列,实现进程通信的实例。以下程序在IBMRS/6000小型机（AIX操作系统）上和IBMPC（UNIX操作系统）上分别调试通过。该程序主要模拟根据帐号查询余额的过程。包括三方面:
+请求进程从标准输入读入帐号,并将该帐号通过消息队列发送给服务进程；
+
+服务进程接收该帐号后,按照请求的先后顺序在标准输入上输入该帐户的姓名和余额，并将结果返回给客户进程；
+
+请求进程接收返回的信息,并将结果输出在标准输出上。
+----服务进程(msgcenter)先于请求进程(msgreq)启动.客户进程启动时要携带请求编号,可同时起动多个请求进程。
+/*请求方程序msgreq.c*/ 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+
+static struct msgbuf1{
+ 
+ long  mtype;
+ 
+ char  mtext[100];
+ 
+}  sndbuf, rcvbuf, *msgp ;
+
+extern int errno;
+
+main(int argc, char **argv) 
+{  
+ int rtrn, msgqid ;
+ 
+ char name[10];
+ 
+ double balance;
+ 
+ if (argc!=2){ 
+  fprintf(stderr, "msgreq [01-99]n"); 
+  exit(-1); 
+ }
+ 
+ if ( (msgqid = msgget(0x810, IPC_CREAT|0660)) == -1 ){
+  
+  fprintf(stderr, "msgget 887 failed ! msgqid = %dn", msgqid); 
+  exit(-1);
+  
+ }
+ 
+ msgp=&sndbuf;
+ 
+ sprintf(sndbuf.mtext,"%2.2s",argv[1]);
+ 
+ printf("输入4位帐号:"); 
+ 
+ scanf("%s",&sndbuf.mtext[2]);
+ 
+ sndbuf.mtext[6]=0;
+ 
+ msgp->mtype=666;
+ 
+ rtrn=msgsnd(msgqid,msgp, strlen(sndbuf.mtext), 0);
+ 
+ if (rtrn==-1){
+  perror("msgsnd"); 
+  exit(-1);
+ }
+ 
+ msgp=&rcvbuf;
+ 
+ fprintf(stderr,"等待后台数据处理进程的回答....");
+ 
+ rtrn=msgrcv(msgqid,msgp, 100, atoi(argv[1]), 0);
+ 
+ if(rtrn==-1){ 
+  perror("msgrcv"); 
+  exit(-1); 
+ }
+ 
+ sscanf(rcvbuf.mtext,"%[^|]|%lf",name,&balance);
+ 
+ printf("n姓名=%sn",name); 
+ 
+ printf("余额=%lfn",balance);
+ 
+ exit(0);
+}
+
+
+/*服务方程序msgcenter.c*/
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+
+static struct msgbuf1{
+ 
+ long  mtype;
+ 
+ char  mtext[100];
+ 
+}  sndbuf, rcvbuf , *msgp;
+
+extern int errno;
+
+main()
+{  
+ int  rtrn, msgqid ;
+ 
+ char strbuf[100];
+ 
+ if ( (msgqid = msgget(0x810, IPC_CREAT|0660)) == -1 ){
+  
+  fprintf(stderr, "msgget 887 failed !n"); 
+  exit(-1);
+  
+ }
+ 
+ while(1) {
+         
+  msgp=&rcvbuf;
+  
+  fprintf(stderr,"等待前台进程的请求....");
+  
+  rtrn=msgrcv(msgqid, msgp, 100, 666 ,MSG_NOERROR);
+  if(rtrn==-1){ 
+   perror("msgrcv");
+   exit(-1); 
+  }
+ 
+  msgp=&sndbuf;
+  
+  sprintf(strbuf,"%2.2s",rcvbuf.mtext);
+  
+  msgp->mtype=atoi(strbuf);
+  
+  printf("n输入帐号=%4.4s的帐户姓名:",&rcvbuf.mtext[2]); 
+  
+  scanf("%s",sndbuf.mtext);
+  
+  strcat(sndbuf.mtext,"|");
+  
+  printf("输入该帐户余额:"); 
+  
+  scanf("%s",strbuf);
+  
+  strcat(sndbuf.mtext,strbuf);
+  
+  rtrn=msgsnd(msgqid,msgp, strlen(sndbuf.mtext), 0);
+  
+  if (rtrn==-1){ 
+   perror("msgsnd"); 
+   exit(-1); 
+  }
+  
+ }
+ 
+ exit(0);
+}
+

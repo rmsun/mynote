@@ -1,0 +1,109 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:58:31+08:00
+
+====== 19 守护进程 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-24
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第13章。
+2.          总结了守护进程的基本概念、编程规则以及如何进行出错处理。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+守护进程
+守护进程也称精灵进程（daemon）是生存期较长的一种进程。它们常常在系统自举时启动，仅在系统关闭时才终止。大多数守护进程都以超级用户（用户ID为0）特权运行。没有一个守护进程具有控制终端，在用ps –axj命令查看时，其终端名设置为问号（？），终端前台进程组ID设置为-1。内核守护进程以无控制终端方式启动。用户层守护进程缺少控制终端可能是守护进程调用setsid的结果。所以用户层守护进程都是进程组的组长进程以及会话的首进程，而且是这些进程组和会话中的唯一进程。大多数守护进程的父进程是init进程。
+         常见的守护进程有：
+²         init：负责启动各运行层次特定的系统服务。
+²         kswapd：页面调出守护进程，通过将脏页面以低速写到磁盘上从而使这些页面在需要时可回收使用。
+²         bdflush和kupdated：将高速缓存中的数据冲洗到磁盘上。
+²         portmap：将RPC程序号映射为网络端口号的服务。
+²         syslogd：可由帮助操作人员把系统消息记入日志的任何程序使用。
+²         inetd：侦听系统网络接口，以便取得来自网络的对各种网络服务进程的请求。
+
+编程规则
+在编写守护进程时需要遵循一些基本规则，以便防止产生并不需要的交互作用。
+1）   首先要做的是调用umask将文件模式创建屏蔽字设置为0。由继承得到的文件模式创建屏蔽字可能会拒绝设置某些权限。
+2）   调用fork，然后使父进程退出。如果该守护进程作为shell命令启动，父进程终止使得shell认为这条命令已经执行完毕。另外，父进程终止使得子进程不是一个进程组的组长进程，这时调用setsid必要的前提条件。
+3）   调用setsid创建一个新会话，使调用进程a)成为新会话的首进程b)成为一个新进程组的组长进程c)没有控制终端。
+4）   将当前工作目录更改为根目录。因为守护进程通常在系统再次引导之前一直存在，如果守护进程的当前工作目录在一个装配文件系统中，那么该文件系统就不能被拆卸。
+5）   关闭不再需要的文件描述符。这使得守护进程不再持有从某父进程继承来的某些文件描述符。
+6）   某些守护进程打开/dev/null使其具有文件描述符0、1和2，这样，任何一个试图读写标准输入输出或标准出错的库例程都不会产生任何效果。
+范例程序如下：
+void daemonize(const char *cmd)
+{
+    int                 i, fd0, fd1, fd2;
+    pid_t               pid;
+    struct rlimit       rl;
+    struct sigaction    sa;
+    /* 规则1) 将文件模式屏蔽位设置为0 */
+    umask(0);
+ 
+    /* 获取最大文件描述符值，用于关闭不再需要的文件描述符 */
+    if (getrlimit(RLIMIT_NOFILE, &rl) < 0)
+        err_quit("%s: can't get file limit", cmd);
+ 
+    /* 规则2)和3) 使子进程称为新会话的首进程，并失去控制终端 */
+    if ((pid = fork()) < 0)
+        err_quit("%s: can't fork", cmd);
+    else if (pid != 0) /* parent */
+        exit(0);
+    setsid();
+ 
+    /* 使子进程在一个孤儿进程组中，不再是会话首进程，于是不会有机会分配到一个控制终端 */
+    sa.sa_handler = SIG_IGN;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    if (sigaction(SIGHUP, &sa, NULL) < 0)
+        err_quit("%s: can't ignore SIGHUP");
+    if ((pid = fork()) < 0)
+        err_quit("%s: can't fork", cmd);
+    else if (pid != 0) /* parent */
+        exit(0);
+ 
+    /* 规则4) 将当前工作目录更改为根目录，使装配文件可拆卸 */
+    if (chdir("/") < 0)
+        err_quit("%s: can't change directory to /");
+ 
+    /* 规则5) 关闭不再需要的文件描述符 */
+    if (rl.rlim_max == RLIM_INFINITY)
+        rl.rlim_max = 1024;
+    for (i = 0; i < rl.rlim_max; i++)
+        close(i);
+ 
+    /* 规则6) 使文件描述符0、1和2与/dev/null关联 */
+    fd0 = open("/dev/null", O_RDWR);
+    fd1 = dup(0);
+    fd2 = dup(0);
+ 
+    /* 初始化日志文件 */
+    openlog(cmd, LOG_CONS, LOG_DAEMON);
+    if (fd0 != 0 || fd1 != 1 || fd2 != 2) {
+        syslog(LOG_ERR, "unexpected file descriptors %d %d %d",
+          fd0, fd1, fd2);
+        exit(1);
+    }
+}
+
+出错记录
+守护进程没有控制终端，所以不能只是简单地写到标准输出上，而是使用syslog设施。有三种方法产生日志消息：1）内核例程可以调用log函数；2）大多数用户进程调用syslog函数产生日志消息；3）在此主机上的一个用户进程或通过TCP/IP网络连接到此主机的其它主机上的一个用户进程可将日志消息发向UDP端口514。然后，syslogd守护进程读取三种格式的日志消息，根据配置文件（一般是/etc/syslog.conf）决定不同种类的消息应送向何处。守护进程通常使用方式2）产生日志消息。
+#include <syslog.h>
+void openlog(const char *ident, int option, int facility);
+void syslog(int priority, const char *format, ...);
+void closelog(void);
+int setlogmask(int maskpri);
+         调用openlog是可选择的，如果不调用，则在第一次调用syslog时，自动调用openlog。openlog使我们可以指定一个ident，将它加到每则日志消息中。ident一般是程序的名称。option参数指定许多选项的位屏蔽。facility参数的目的是可以让配置文件说明，来自不同设施的消息将以不同的方式进行处理。
+syslog函数产生一个日志消息，其priority参数是facility和level的组合。format参数用于格式化字符串。在format中，每个%m都先被换成对应于errno值的出错消息字符串（strerror）。
+setlogmask函数用于设置进程的记录优先级屏蔽字。它返回调用之前的屏蔽字。
+
+守护进程的惯例
+l          某些守护进程实现为单实例的，即任一时刻只运行该守护进程的一个副本。文件锁和记录锁机制是一种方法。若使用锁文件，那么该文件通常放在/var/rum目录下。锁文件的名字通常是name.pid，其中，name是该守护进程或服务的名字。
+l          若守护进程支持配置选项，那么配置文件通常存放在/etc目录中。配置文件的名字通常是name.conf。
+l          守护进程可以是命令行启动，但通常它们是由系统初始化脚本之一启动的。如果在守护进程终止时，应当自动地重新启动，可在/etc/inittab中为该守护进程包括_respawn记录项，这样，init将重新启动该守护进程。
+l          若守护进程有一配置文件，那么当更改了配置文件后，守护进程可能需要被停止，然后再启动，以使配置文件的更改生效。为避免这种麻烦，某些守护进程将捕捉SIGHUP信号，当它们接收到该信号时，重读配置文件。

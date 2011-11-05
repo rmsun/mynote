@@ -1,0 +1,224 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:57:08+08:00
+
+====== 16 线程属性 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-21
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第12章。
+2.          总结了与pthread_attr_t结构相关的四个线程属性，以及线程并发度、可取消状态和可取消类型属性。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+pthread_attr_t
+ 
+结构
+在调用pthread_create函数创建线程的时候，可以使用pthread_attr_t结构修改线程默认属性，并把这些属性与创建的线程联系起来。将pthread_attr_t结构传递给pthread_create前，需要调用pthread_attr_init进行初始化，使其包含线程的默认属性。如果要修改其中个别属性的值，需要调用其它函数，因为pthread_attr_t结构对应用程序是不透明的。在传递pthread_attr_t结构后，可以使用pthread_attr_destroy去初始化，释放pthread_attr_init可能申请的内存。
+#include <pthread.h>
+int pthread_attr_init(pthread_attr_t *attr);
+int pthread_attr_destroy(pthread_attr_t *attr);
+                                        Both return: 0 if OK, error number on failure
+         与pthread_attr_t相关的线程属性有四个：
+l          detachstate：线程的分离状态属性。如果对现有的某个线程的种植状态不感兴趣的话，可以使用pthread_detach函数让操作系统在线程退出时收回它所占用的资源。如果在创建线程时就知道不需要了解线程的终止状态，则可以修改pthread_attr_t结构中的detachstate属性，让线程以分离状态启动。可以使用pthread_attr_setdetachstate函数把线程属性detachstate设置为下面的两个合法值之一：PTHREAD_CREATE_DETACHED或PTHREAD_CREATE_JOINABLE。可以调用pthread_attr_getdetachstate函数获取当前的detachstate线程属性。
+#include <pthread.h>
+int pthread_attr_getdetachstate(const pthread_attr_t *restrict attr, int *detachstate);
+int pthread_attr_setdetachstate(pthread_attr_t *attr, int detachstate);                                       
+Both return: 0 if OK, error number on failure
+l          stachaddr：线程栈的最低地址空间。对进程来说，虚拟地址空间的大小是固定的，进程中只有一个栈。但对线程来说，同样大小的虚拟地址空间必须被所有的线程所共享。如果用完了线程栈的虚拟地址空间，可以使用mallock或mmap来为其它栈分配空间，并用pthread_attr_setstack函数来改变新建线程的栈位置。线程栈所占内存范围中可寻址的最低地址可以由stackaddr参数指定。pthread_attr_setstack函数同时设置线程栈的大小。
+对于遵循POSIX标准的操作系统来说，并不一定要支持线程栈属性，但是对遵循XSI的系统，支持线程栈属性是必须的。可以在编译阶段使用_POSIX_THREAD_ATTR_STACKADDR和_POSIX_THREAD_ATTR_STACKSIZE符号来检查系统是否支持线程属性。或者在运行阶段把_SC_THREAD_ATTR_STACKADDR和_SC_THREAD_ATTR_STACKSIZE参数传递给sysconf函数，检查系统对线程属性的支持情况。
+#include <pthread.h>
+int pthread_attr_getstack(const pthread_attr_t *restrict attr,
+                          void **restrict stackaddr, size_t *restrict stacksize);
+int pthread_attr_setstack(const pthread_attr_t *attr,
+                          void *stackaddr, size_t *stacksize);                                   
+Both return: 0 if OK, error number on failure
+l          stacksize：线程栈的大小（字节数）。pthread_attr_getstack和pthread_attr_setstack函数可以获取和设置线程栈的大小。如果希望改变线程栈的默认大小，但又不想自己处理线程栈的分配问题，这时可以使用pthread_attr_setstacksize函数。
+#include <pthread.h>
+int pthread_attr_getstacksize(const pthread_attr_t *restrict attr, size_t *restrict stacksize);
+int pthread_attr_setstacksize(pthread_attr_t *attr, size_t stacksize);                                 
+Both return: 0 if OK, error number on failure
+l          guardsize：线程栈末尾的警戒缓冲区（用以避免栈溢出的扩展内存）大小（字节数）。默认设置为PAGESIZE字节。如果对线程属性stackaddr作了修改，系统就会假设我们会自己管理线程栈，并使警戒栈缓冲区机制无效，等同于把guardsize线程属性设为0。如果guardsize线程属性被修改了，操作系统可能把它取为页大小的整数倍。如果线程的栈指针溢出到警戒区域，应用程序就可能通过信号接收到出错消息。
+#include <pthread.h>
+int pthread_attr_getguardsize(const pthread_attr_t *restrict attr, size_t *restrict guardsize);
+int pthread_attr_setguardsize(pthread_attr_t *attr, size_t guardsize);                                
+Both return: 0 if OK, error number on failure
+
+并发度
+并发度控制着用户线程可以映射的内核线程或进程的数目。如果操作系统的实现在内核级的线程和用户级的线程之间保持一对一的映射，那么改变并发度并不会有什么效果，因为所有的用户级线程都可能被调度到。但是，如果映射关系是多对一的话，那么在给定时间内增加可运行的用户级线程数，可能会改善性能。
+         pthread_setconcurrency函数可以用于提示系统，表明希望的并发度，但是系统并不保证请求的并发度一定会被采用。参数level为0时，可以撤销之前的设置。pthread_getconcurrency函数返回当前的并发度。
+#include <pthread.h>
+int pthread_getconcurrency(void);
+Returns: current concurrency level
+int pthread_setconcurrency(int level);
+Returns: 0 if OK, error number on failure
+
+取消选项
+可取消状态和可取消类型，这两个线程属性没有包含在pthread_attr_t结构中，它们影响线程在响应pthread_cancel函数调用时所呈现的行为。可取消状态属性可以是PTHREAD_CANCEL_ENABLE或PTHREAD_CANCEL_DISABLE。线程可以通过调用pthread_setcancelstate修改它的可取消状态。
+         pthread_cancel调用并不等待线程终止，在默认情况下，线程在取消请求发出以后继续运行，直到线程到达某个取消点（某些系统调用，如sleep）。当可取消状态为PTHREAD_CANCEL_DISABLE时，对pthread_cancel的调用并不会杀死线程，取消请求对这个线程来说处于未决状态。当取消状态再次改变为PTHREAD_CANCEL_ENABLE时，线程将在下一个取消点上对所有未决的取消请求进行处理。
+可以调用pthread_testcancel函数在程序中自己添加取消点。调用pthread_testcancel时，如果有某个取消请求正处于未决状态，而且取消并没有置为无效，那么线程就会被取消。
+#include <pthread.h>
+int pthread_setcancelstate(int state, int *oldstate);
+Returns: 0 if OK, error number on failure
+void pthread_testcancel(void);
+         以上描述的默认取消类型称为延迟取消，即到达取消点之前，并不会出现真正的取消。可以通过调用pthread_setcanceltype来修改取消类型。type参数可以是PTHREAD_CANCEL_DEFERRED（延迟取消）或PTHREAD_CANCEL_ASYNCHRONOUS（异步取消），原来的取消类型通过oldtype参数返回。使用异步取消时，线程可以在任意时间取消，而不是非得遇到取消点才能被取消。
+#include <pthread.h>
+int pthread_setcanceltype(int type, int *oldtype);
+Returns: 0 if OK, error number on failure
+         实验程序如下。一开始查询pthread_attr_t相关的四个属性，总是不能得到正确的值。本想man一下查询函数，发现man中没有pthread相关的函数说明。百度后知道，需要下载并安装man-pages。下载地址为：http://www.kernel.org/doc/man-pages/download.html%E3%80%82%E4%B8%8B%E8%BD%BD%E5%90%8E%EF%BC%8C%E8%A7%A3%E5%8E%8B%E7%BC%A9%E6%96%87%E4%BB%B6%EF%BC%8C%E8%BF%9B%E5%85%A5%E6%96%87%E4%BB%B6%E7%9B%AE%E5%BD%95%EF%BC%8C%E6%89%A7%E8%A1%8Cmake install即可。参考pthread_attr_init函数说明中的例子后，发现在调用pthread_attr_get*函数前，不需要调用pthread_attr_init进行初始化，而是要调用pthread_getattr_np函数获取线程的属性后，再调用pthread_attr_get*函数进行查询。
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <string.h>
+ 
+void print_attr()
+{
+     pthread_attr_t attr;
+     int  err, detachstate, cancelstate, canceltype;
+     void *stackaddr;
+     size_t stacksize, guardsize;
+ 
+     err = pthread_getattr_np(pthread_self(), &attr);
+     if(err != 0)
+       printf("pthread_getattr_np error: %s/n", strerror(err));
+ 
+     err = pthread_attr_getdetachstate(&attr, &detachstate);
+     if(err != 0)
+       printf("getdetachstate error: %s/n", strerror(err));
+     else if(PTHREAD_CREATE_JOINABLE == detachstate)
+       printf("detachstate: PTHREAD_CREATE_JOINABLE/n");
+     else
+       printf("detachstate: PTHREAD_CREATE_DETACHED/n");
+ 
+     if(sysconf(_SC_THREAD_ATTR_STACKADDR) && sysconf(_SC_THREAD_ATTR_STACKSIZE))
+     {
+       err = pthread_attr_getstack(&attr, &stackaddr, &stacksize);
+       if(err != 0)
+            printf("getstack error: %s/n", strerror(err));
+       else
+            printf("stackaddr: 0x%x, stacksize: %u(bytes)/n",
+               (unsigned int)stackaddr, (unsigned int)stacksize);
+     }
+ 
+     err = pthread_attr_getguardsize(&attr, &guardsize);
+     if(err != 0)
+       printf("getguardsize error: %s/n", strerror(err));
+     else
+       printf("guardsize: %u(bytes)/n", guardsize);
+ 
+     printf("concurrency: %d/n", pthread_getconcurrency());
+ 
+     err = pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, &cancelstate);
+     if(err != 0)
+       printf("setcancelstate error: %s/n", strerror(err));
+     else if(PTHREAD_CANCEL_ENABLE == cancelstate)
+       printf("cancelstate: PTHREAD_CANCEL_ENABLE/n");
+     else
+       printf("cancelstate: PTHREAD_CANCEL_DISABLE/n");
+    
+     err = pthread_setcanceltype(PTHREAD_CANCEL_DEFERRED, &canceltype);
+     if(err != 0)
+       printf("setcanceltype error: %s/n", strerror(err));
+     else if(PTHREAD_CANCEL_DEFERRED == cancelstate)
+       printf("canceltype: PTHREAD_CANCEL_DEFERRED/n");
+     else
+       printf("canceltype: PTHREAD_CANCEL_ASYNCHRONOUS/n");
+}
+ 
+void *thr_fn1(void *arg)
+{
+     printf("thread 0x%x start:/n", (unsigned int)pthread_self());
+     print_attr();
+     printf("thread 0x%x end:/n", (unsigned int)pthread_self());
+     return (void *)0;
+}
+ 
+void *thr_fn2(void *arg)
+{
+     int err;
+ 
+     printf("thread 0x%x start:/n", (unsigned int)pthread_self());
+     err = pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+     if(err != 0)
+       printf("setcancelstate error: %s/n", strerror(err));
+     err = pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+     if(err != 0)
+       printf("setcanceltype error: %s/n", strerror(err));
+     print_attr();
+     printf("thread 0x%x end:/n", (unsigned int)pthread_self());
+     return (void *)0;
+}
+ 
+int main()
+{
+     pthread_t tid1, tid2;
+     pthread_attr_t attr;
+     char *stackaddr=NULL;
+     size_t stacksize;
+     int err;
+     void *tret;
+        
+     err = pthread_create(&tid1, NULL, thr_fn1, NULL);
+     if(err != 0)
+       printf("pthread_create thread1 error: %s/n", strerror(err));
+     err = pthread_join(tid1, &tret);
+     if(err != 0)
+       printf("pthread_join error: %s/n", strerror(err));
+  
+     err = pthread_attr_init(&attr);
+     if(err != 0)
+       printf("pthread_attr_init error: %s/n", strerror(err));
+     err = pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+     if(err != 0)
+       printf("setdetachstate error: %s/n", strerror(err));
+#if defined( _POSIX_THREAD_ATTR_STACKADDR) && defined(_POSIX_THREAD_ATTR_STACKSIZE)
+     stacksize = 10240000;
+     stackaddr = malloc(stacksize);
+     if(NULL == stackaddr)
+       perror("malloc error");
+     err = pthread_attr_setstack(&attr, (void *)stackaddr, stacksize);
+     if(err != 0)
+       printf("setstack error: %s/n", strerror(err));
+#endif
+     err = pthread_setconcurrency(2);
+     if(err != 0)
+       printf("setconcurrency error: %s/n", strerror(err));
+     err = pthread_create(&tid2, &attr, thr_fn2, NULL);
+     if(err != 0)
+       printf("pthread_create thread2 error: %s/n", strerror(err));
+     err = pthread_join(tid2, &tret);
+     if(err != 0)
+       printf("pthread_join error: %s/n", strerror(err));
+     err = pthread_attr_destroy(&attr);
+     if(err != 0)
+       printf("pthread_attr_destroy error: %s/n", strerror(err));
+     pause();
+     exit(0);
+}
+运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+thread 0xb7f24b90 start:
+detachstate: PTHREAD_CREATE_JOINABLE
+stackaddr: 0xb7724000, stacksize: 8392704(bytes)
+guardsize: 4096(bytes)
+concurrency: 0
+cancelstate: PTHREAD_CANCEL_ENABLE
+canceltype: PTHREAD_CANCEL_DEFERRED
+thread 0xb7f24b90 end:
+thread 0xb7722b90 start:
+detachstate: PTHREAD_CREATE_DETACHED
+stackaddr: 0xb6d5f008, stacksize: 10240000(bytes)
+guardsize: 0(bytes)
+concurrency: 2
+cancelstate: PTHREAD_CANCEL_DISABLE
+canceltype: PTHREAD_CANCEL_ASYNCHRONOUS
+thread 0xb7722b90 end:
+pthread_join error: Invalid argument
+^C

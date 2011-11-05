@@ -1,0 +1,124 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:53:11+08:00
+
+====== 5 设置用户ID ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-13
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第4章。
+2.          总结了用户ID和文件访问权限检查的概念，以及设置用户ID的用法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+用户
+ID
+一个进程与两类ID相关：
+l          实际用户ID和实际组ID，用于标识用户究竟是谁。这两个字段在登录时取自口令文件中的登录项。可以使用getuid和getgid函数查询。
+l          有效用户ID和有效组ID，与附加组ID一起，用于文件访问权限检查。可以使用geteuid和getegid函数查询。通常，等于实际用户ID和实际组ID。
+一个文件仅将其所有者ID和所有组ID记录在stat结构的st_uid和st_gid字段。
+
+文件访问权限检查
+进程每次打开，创建或删除一个文件时，内核就进行文件访问权限检查。内核按顺序执行以下四步，一旦满足就停止检查：
+l          若进程的有效用户ID是0（超级用户），则允许访问。
+l          若进程的有效用户ID等于文件的所有者ID，并且所有者适当的访问权限位被设置，则允许访问，否则拒绝访问。
+l          若进程的有效组ID或进程的附加组ID之一等于文件的组ID，并且适当的访问权限位被设置，则允许访问，否则拒绝访问。
+l          若其他用户适当的访问权限位被设置，则允许访问，否则拒绝访问。
+
+设置用户
+ID
+可以看到，权限检查依赖于有效ID，而与实际ID无关。使用access函数可以按照实际用户ID和实际组ID进行权限检查。通常，进程的有效ID等于实际ID。一个例外是使用设置用户ID位和设置组ID位。如果一个程序文件的设置用户ID位被置位，那么，当执行此文件时，将进程的有效用户ID设置为文件所有者ID（st_uid）。设置组ID的机制与此类似。文件的设置用户ID位和设置组ID位包含在stat结构的st_mode字段中，可用宏S_ISUID和S_ISGID测试。
+         实验程序如下：
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+ 
+int main(int argc, char *argv[])
+{
+     struct stat st;
+ 
+     if(argc != 2)
+     {
+       printf("usage: a.out <filename>./n");
+       exit(0);
+     }
+     stat(argv[1], &st);
+     printf("uid=%d, gid=%d, euid=%d, egid=%d./n",
+         getuid(), getgid(), geteuid(), getegid());
+     printf("%s: st_uid=%d, st_gid=%d./n", argv[1], st.st_uid, st.st_gid);
+     if(access(argv[1], R_OK) < 0)
+       printf("access error for %s./n", argv[1]);
+     else
+       printf("access ok for %s./n", argv[1]);
+     if(open(argv[1], O_RDONLY) < 0)
+       printf("open error for %s./n", argv[1]);
+     else
+       printf("open ok for %s./n", argv[1]);
+     exit(0);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ sudo su
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# chown root a.out
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# chmod u+s a.out
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# ls -l a.out
+-rwsr-xr-x 1 root pydeng 9566 2009-08-12 19:28 a.out
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# exit
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out /etc/shadow
+uid=1000, gid=1000, euid=0, egid=1000.
+/etc/shadow: st_uid=0, st_gid=42.
+access error for /etc/shadow.
+open ok for /etc/shadow.
+
+新文件和目录的所有权
+新文件的用户ID设置为进程的有效用户ID。至于组ID有些复杂。在linux下，新文件的组ID取决于它所在目录的设置组ID位是否设置。如果该目录的这一位已经设置，则将新文件的组ID设置为目录的组ID，否则将新文件的组ID设置为进程的有效组ID。
+实验程序如下：
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+ 
+int main(int argc, char *argv[])
+{
+     struct stat st;
+ 
+     if(argc != 2)
+     {
+       printf("usage: a.out <filename>./n");
+       exit(0);
+     }
+     if(open(argv[1], O_CREAT) < 0)
+     {
+       printf("create file error./n");
+       exit(0);
+     }
+     stat(argv[1], &st);
+     printf("%s: st_uid=%d, st_gid=%d./n", argv[1], st.st_uid, st.st_gid);
+     exit(0);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ sudo su
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# chmod 777 /usr/
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# exit
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out /usr/mytemp
+/usr/mytemp: st_uid=1000, st_gid=1000.
+ 
+pydeng@pydeng-laptop:~/apue.2e/mytest$ sudo su
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# chmod g+s /usr/
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# ls -l /
+drwxrwsrwx  12 root root  4096 2009-08-12 19:46 usr
+...
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# exit
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out /usr/mytemp2
+/usr/mytemp2: st_uid=1000, st_gid=0.
+ 
+pydeng@pydeng-laptop:~/apue.2e/mytest$ sudo su
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# chmod g-s /usr
+root@pydeng-laptop:/home/pydeng/apue.2e/mytest# chmod 755 /usr

@@ -1,0 +1,173 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:00:19+08:00
+
+====== 25 进程间通信之消息队列 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-29
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第15章。
+2.          总结了进程间通信的一种机制——消息队列的基本概念和使用方法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+标识符和键
+有三种IPC称作XSI IPC，即消息队列、信号量以及共享存储器。每个内核中的IPC结构都用一个非负整数的标识符加以引用。标识符是IPC对象的内部名。为使多个合作进程能够在同一IPC对象上会合，需要提供一个外部命名方案。为此使用键与每个IPC对象关联。键的数据类型为key_t，由内核变换成标识符。
+         ftok函数根据一个路径名和项目ID产生一个键。path参数必须引用一个现存文件。当产生键时，只使用id参数的低8位。
+#include <sys/ipc.h>
+key_t ftok(const char *path, int id);
+Returns: key if OK, (key_t)-1 on error
+
+权限结构
+XSI IPC为每一个IPC结构设置了一个ipc_perm结构，规定了权限和所有者。它至少包括下列成员：
+struct ipc_perm {
+     uid_t  uid;  /* owner's effective user id */
+     gid_t  gid;  /* owner's effective group id */
+     uid_t  cuid; /* creator's effective user id */
+     gid_t  cgid; /* creator's effective group id */
+     mode_t mode; /* access modes */
+     .
+};
+可以调用msgctl、semctl或shmctl函数修改uid、gid和mode字段。为了改变这些值，调用进程必须是IPC结构的创建者或超级用户。对于任何IPC结构不存在执行权限。
+
+优缺点
+ 
+XSI IPC的主要问题是：
+l          IPC结构是在系统范围内起作用的，没有访问计数。进程终止时，消息队列及其内容将余留在系统中，直到某个进程调用msgrcv或msgctl读消息或删除消息队列，或某个进程执行ipcrm命令删除消息队列，或由正在重启的系统删除消息队列。
+l          这些IPC结构在文件系统中没有名字，因此不能使用操作文件的函数，而必须增加新的系统调用。
+l          由于这些IPC不使用文件描述符，所以不能对它们使用多路转接I/O函数，如select和poll。
+消息队列的优点则有：
+l          流是受控的，如果系统资源（缓冲区）短缺或者如果接收进程不能再接收更多消息，则发送进程就要休眠。
+l          可以用非先进先出方式处理。
+
+创建消息队列
+msgget函数用于创建一个新队列或打开一个现存的队列。如果满足下列两个条件之一，则创建一个新的消息队列：
+l          key是IPC_PRIVATE。因此，为了访问一个现存队列，决不能指定IPC_PRIVATE作为键。
+l          key当前未与消息队列相结合，并且flag中指定了IPC_CREAT位。新创建的消息队列的访问权限，即ipc_perm结构中的mode字段根据flag中的相应权限位设置。
+#include <sys/msg.h>
+int msgget(key_t key, int flag);
+Returns: message queue ID if OK, -1 on error
+若执行成功，msgget返回非负队列ID，该ID可用于读写或控制消息队列。
+         每个消息队列都有一个msqid_ds结构与其相关联。此结构规定了消息队列的当前状态。
+struct msqid_ds {
+     struct ipc_perm  msg_perm;     /* see Section 15.6.2 */
+     msgqnum_t        msg_qnum;     /* # of messages on queue */
+     msglen_t         msg_qbytes;   /* max # of bytes on queue */
+     pid_t            msg_lspid;    /* pid of last msgsnd() */
+     pid_t            msg_lrpid;    /* pid of last msgrcv() */
+     time_t           msg_stime;    /* last-msgsnd() time */
+     time_t           msg_rtime;    /* last-msgrcv() time */
+     time_t           msg_ctime;    /* last-change time */
+     .
+};
+         系统中，关于消息队列的限制包括：可发送最长消息的字节数、一个特定队列的最大字节数、系统中最大消息队列数以及系统中最大消息数。
+
+发送消息
+调用msgsnd函数可将数据发送到消息队列尾端。每个消息都由三部分组成：正长整型的类型字段mtype、非负长度nbytes以及实际数据字节（对应于长度）。参数ptr是一个结构的指针，它包含了消息类型mtype和消息数据。
+#include <sys/msg.h>
+int msgsnd(int msqid, const void *ptr, size_t nbytes, int flag);
+Returns: 0 if OK, -1 on error
+struct mymesg {
+     long  mtype;      /* positive message type */
+     char  mtext[nbytes]; /* message data, of length nbytes */
+};
+         参数flag可以指定为IPC_NOWAIT，它类似于非阻塞I/O标志。若消息队列已满（或者是队列中的消息总数等于系统限制，或者是队列中的字节总数等于系统限制值），则制定IPC_NOWAIT使得msgsnd立即出错返回EAGAIN。如果没有指定IPC_NOWAIT，则进程阻塞直到：有空间可以容纳要发送的消息；或从系统中删除此消息队列；或捕捉到一个信号并从信号处理函数返回。在第二种情况下，返回EIDRM（“标识符被删除”），最后一种情况则返回EINTR。
+         当msgsnd成功返回，与消息队列关联的msqid_ds结构得到更新，以标明发出该调用的进程ID（msg_lspid）、进行该调用的时间（msg_stime），并指示队列中增加了一条消息（msg_qnum）。
+
+接收消息
+调用msgrcv函数可从消息队列中取得消息。
+#include <sys/msg.h>
+ssize_t msgrcv(int msqid, void *ptr, size_t nbytes, long type, int flag);
+Returns: size of data portion of message if OK, -1 on error
+参数ptr与msgsnd中的一样。nbytes说明数据缓冲区的长度。若返回的消息大于nbytes，而且在flag中设置了MSG_NOERROR，则该消息被截断。在这种情况下，消息的截断部分被丢弃。如果没有设置这一标志，而消息又太长，则出错返回E2BIG，消息仍然留在队列中。
+         参数type指定想要接收哪一种消息：1）type==0，返回队列中的第一个消息；2）type>0，返回队列中消息类型为type的第一个消息；3）type<0，返回队列中消息类型值小于或等于type绝对值的消息，如果这种消息有若干个，则取类型值最小的消息。
+         可以指定flag参数为IPC_NOWAIT，使操作不阻塞。这使得如果没有所指定类型的消息，则msgrcv返回-1，errno设置为ENOMSG。如果没有指定IPC_NOWAIT，则进程阻塞直到：有了指定类型的消息；或从系统中删除此消息队列（出错返回-1且errno设置为EIDRM）；或捕捉到一个信号并从处理函数返回（出错返回-1且errno设置为EINTR）。
+         msgrcv成功执行时，内核更新与消息队列关联的msqid_ds结构，以指示调用者的ID（msg_lrpid）和调用时间（msg_rtime），并将队列中的消息数（msg_qnum）减1。
+
+操作消息队列
+msgctl函数对消息队列执行多种操作。
+#include <sys/msg.h>
+int msgctl(int msqid, int cmd, struct msqid_ds *buf );
+Returns: 0 if OK, -1 on error
+cmd参数说明对由msgid指定的消息队列要执行的命令。
+l          IPC_STAT，取此消息队列的msqid_ds结构，并将其放到buf指向的结构中。
+l          IPC_SET，按由buf指向结构中的值，设置与此队列相关结构中的四个字段：msg_perm.uid、msg_perm.gid、msg_perm.mode和msg_qbytes。调用进程的有效用户ID必须等于msg_perm.cuid或msd_perm.uid，或者是具有超级用户权限的进程。只有超级用户才能增加msg_qbytes的值。
+l          IPC_RMID，从系统中删除该消息队列以及仍在队列中的所有数据。这种删除立即生效。调用进程的有效用户ID必须等于msg_perm.cuid或msd_perm.uid，或者是具有超级用户权限的进程。
+实验程序如下：
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <time.h>
+#include "apue.h"
+ 
+struct mymesg
+{
+     long mtype;
+     char mtext[6];
+};
+ 
+void print_msqid(const struct msqid_ds *ds)
+{
+     printf("uid=%d, gid=%d, cuid=%d, cgid=%d, mode=%o/n",
+         ds->msg_perm.uid, ds->msg_perm.gid, ds->msg_perm.cuid,
+         ds->msg_perm.cgid, ds->msg_perm.mode);
+     printf("msg_qnum=%d, msg_qbytes=%d/n",
+         (int)ds->msg_qnum, (int)ds->msg_qbytes);
+     printf("msg_lspid=%d, msg_lrpid=%d/n",
+         ds->msg_lspid, ds->msg_lrpid);
+     printf("msg_stime=%smsg_rtime=%smsg_ctime=%s",
+         ctime(&ds->msg_stime), ctime(&ds->msg_rtime), ctime(&ds->msg_ctime));
+}
+ 
+int main()
+{
+     pid_t pid;
+     key_t key;
+     int msgid;
+     struct mymesg snd_msg={1, "hello"};
+     struct mymesg rcv_msg;
+     struct msqid_ds msqds;
+ 
+     if((key = ftok("/home/pydeng", 'b')) == -1)
+       err_sys("ftok error");
+     if((pid = fork()) < 0)
+       err_sys("fork error");
+     else if(pid == 0)
+     {
+       if((msgid = msgget(key, IPC_CREAT | 00666)) == -1)
+            err_sys("create msgqueue error");
+       if(msgsnd(msgid, &snd_msg, 6, 0) == -1)
+            err_sys("msgsnd error");
+       exit(0);
+     }
+     if(waitpid(pid, NULL, 0) == -1)
+       err_sys("waitpid error");
+     if((msgid = msgget(key, 0)) == -1)
+       err_sys("open msgqueue error");
+     if(msgrcv(msgid, &rcv_msg, 6, 1, 0) == -1)
+       err_sys("msgrcv error");
+     fputs(rcv_msg.mtext, stdout);
+     fputc('/n', stdout);
+     if(msgctl(msgid, IPC_STAT, &msqds) == -1)
+       err_sys("msgctl IPC_STAT error");
+     print_msqid(&msqds);
+     if(msgctl(msgid, IPC_RMID, NULL) == -1)
+       err_sys("msgctl IPC_RMID error");
+     exit(0);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+hello
+uid=1000, gid=1000, cuid=1000, cgid=1000, mode=666
+msg_qnum=0, msg_qbytes=16384
+msg_lspid=7078, msg_lrpid=7077
+msg_stime=Mon Aug 24 10:45:36 2009
+msg_rtime=Mon Aug 24 10:45:36 2009
+msg_ctime=Mon Aug 24 10:45:36 2009

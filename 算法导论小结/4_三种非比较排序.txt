@@ -1,0 +1,134 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:21:04+08:00
+
+====== 4 三种非比较排序 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-7-15
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《算法导论》(第2版)》第8章。
+2.          主要介绍了三种非比较排序：计数排序、基数排序和桶排序。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+计数排序
+ 
+计数排序假设n个输入元素中的每一个都是介于0到k之间的整数。当k=O(n)时，基数排序的运行时间为Θ(n)。它的基本思想是对每一个输入元素x，确定出小于x的元素个数，即为x在最终数组中的位置。计数排序不是原地排序，需要额外的数组用于存放排序结果，并且需要提供临时存储区用于计数。实际上，三种非比较排序的共同缺点都是非原地排序。因此，当内存容量比较宝贵时，像快速排序这样的原地排序可能更为可取。
+/*
+ * array:输入数组
+ * sorted_array:排序后数组
+ * k:数组中元素不大于k
+ */
+void counting_sort(int *array, int length, int *sorted_array, int k)
+{
+    int *counting_array=NULL, i;
+ 
+    counting_array = (int *)malloc(sizeof(int)*(k+1));
+    for(i=0; i<k+1; i++)
+          counting_array[i] = 0;
+ 
+    for(i=0; i<length; i++)
+          counting_array[array[i]]++;
+ 
+    for(i=1; i<k+1; i++)
+          counting_array[i] += counting_array[i-1];
+    /*逆向循环保证排序稳定性*/
+    for(i=length-1; i>=0; i--)
+    {
+          sorted_array[counting_array[array[i]]-1] = array[i];
+          counting_array[array[i]]--;
+    }
+ 
+    free(counting_array);
+    counting_array = NULL;
+}
+
+基数排序
+ 
+计数排序的一个限制是对输入元素小于k的假定。k的取值决定了用于临时存放计数的存储区的大小。基数排序是对计数排序的扩展，将数组元素按位进行划分，并循环调用计数排序对各个位排序。排序从低位到高位进行，使得最后一次计数排序完成后，数组有序。对于n个b位数和任何正整数r≤b，基数排序能在Θ((b/r)(n+2r))时间内正确地对这些数进行排序。因为存在对输入元素位数或取值范围的假设，因此基数排序与计数排序比较适用于对固定格式的元素进行排序，如年月日格式的日期。需要注意的是，必须保证中间过程-计数排序的稳定性，这样，对高位的排序才能保留低位排序的结果。
+/*
+ * d: 元素位数
+ */
+void radix_sort(int *array, int length, int *sorted_array, int d)
+{
+    int *counting_array=NULL, i, j, k, base, temp;
+ 
+    k = 10+1;  /*10进制数*/
+    counting_array = (int *)malloc(sizeof(int)*k);
+   
+    base = 1;
+    for(j=1; j<=d; j++)
+    {   
+          for(i=0; i<k; i++)
+              counting_array[i] = 0;
+ 
+          for(i=0; i<length; i++)
+              counting_array[array[i]/base%10]++;
+ 
+          for(i=1; i<k; i++)
+              counting_array[i] += counting_array[i-1];
+    
+          for(i=length-1; i>=0; i--)
+          {
+              temp = array[i]/base%10;
+              sorted_array[counting_array[temp]-1] = array[i];
+              counting_array[temp]--;
+          }
+ 
+          for(i=0; i<length; i++)
+              array[i] = sorted_array[i];
+ 
+          base *= 10;
+    }
+ 
+    free(counting_array);
+    counting_array = NULL;
+}
+
+桶排序
+ 
+与计数排序一样，桶排序也对输入做了假设。它假设输入由一个随机过程产生，该过程将元素均匀而独立地分布在一个区间内。桶排序的思想就是将该区间分为n个相同大小的子区间，或称为桶。然后，将n个输入数分布到各个桶中去。因为输入数均匀且独立地分布在区间上，一般不会有很多数落在一个桶中的情况。为得到结果，先对各个桶中的数进行排序，然后按次序把各桶中的元素列出来即可。当桶排序的输入符合均匀分布时，即可以以线性期望时间运行。
+/*
+ * 暂时用数组替代链表
+ * d: 元素位数
+ */
+void bucket_sort(int *array, int length, int d)
+{
+    int **list_array=NULL, i, j, base, index;
+ 
+    list_array = (int **)malloc(sizeof(int)*10);  /*10个桶*/
+    for(i=0; i<10; i++)
+    {
+          list_array[i] = (int *)malloc(sizeof(int)*(length+1));
+          list_array[i][length] = 0;  /*用最后一个元素记录桶中元素个数*/
+    }
+ 
+    base = 1;
+    for(i=1; i<d; i++)
+          base *= 10;
+ 
+    for(i=0; i<length; i++)
+    {
+          index = array[i]/base;
+          list_array[index][list_array[index][length]] = array[i];
+          list_array[index][length]++;
+    }
+ 
+    index = 0;
+    for(i=0; i<10; i++)
+    {   
+          insertion_sort(list_array[i], list_array[i][length]);
+          for(j=0; j<list_array[i][length]; j++)
+              array[index++] = list_array[i][j];
+          free(list_array[i]);
+          list_array[i] = NULL;
+    }
+    free(list_array);
+    list_array = NULL;
+}

@@ -1,0 +1,31 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:00:00+08:00
+
+====== 24 进程间通信之命名管道 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-29
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第15章。
+2.          总结了命名管道与管道的区别及其使用方法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+命名管道
+管道类似于一个进程间共享的文件，其访问接口为两个文件描述符，一个以只读方式打开，另一个以只写方式打开。由于管道不存在文件名，因此其描述符只能在具有公共祖先的进程间通过继承取得。命名管道，也称为FIFO，允许不相关的进程通过调用open函数获得管道的描述符，从而进行进程间的通信。
+
+创建命名管道
+创建FIFO，类似于创建文件，这通过mkfifo函数完成。FIFO的路径名存在于文件系统中。mode参数的取值与open函数中的mode相同。
+#include <sys/stat.h>
+int mkfifo(const char *pathname, mode_t mode);
+Returns: 0 if OK, -1 on error
+         一旦创建了一个FIFO，就可以用open打开它，并且一般的文件I/O函数（如close、read、write、unlink等）都可用于FIFO。当打开一个FIFO时，非阻塞标志（O_NONBLOCK）产生下列影响：
+l          在一般情况下，即没有指定O_NONBLOCK，只读open要阻塞到某个其它进程为写而打开此FIFO。类似地，只写open要阻塞到某个其它进程为读而打开它。
+l          如果指定了O_NONBLOCK，则只读open立即返回。但是，如果没有进程为读而打开一个FIFO，那么只写open将出错返回-1，errno设置为ENXIO。
+类似于管道，若用write写一个尚无进程为读而打开的FIFO，则产生信号SIGPIPE。若某个FIFO的最后一个写进程关闭了该FIFO，则将为该FIFO的读进程产生一个文件结束标志。

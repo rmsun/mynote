@@ -1,0 +1,143 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:59:05+08:00
+
+====== 21 IO多路转接 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-25
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第14章。
+2.          总结了IO多路转接的概念，以及select、pselect和poll函数的用法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+IO
+ 
+多路转接
+当从一个文件描述符读，然后写到另一个文件描述符，可以在下列形式的循环中使用阻塞IO。
+while ((n = read(STDIN_FILENO, buf, BUFSIZ)) > 0)
+      if (write(STDOUT_FILENO, buf, n) != n)
+           err_sys("write error");
+但是，如果必须从两个描述符读，那么就可能长时间阻塞在一个描述符上，而另一个描述符虽然有很多数据却不能得到及时处理。
+         IO多路转接（I/O Multiplexing），先构造一张有关描述符的列表，然后调用一个函数，直到这些描述符中的一个已准备好进行I/O时，该函数才返回。在返回时，它告诉进程哪些描述符已准备好可以进行I/O。POSIX.1标准定义了select和pselect函数，而poll则是对该基本部分的XSI扩展。
+
+select
+ 
+ 
+#include <sys/select.h>
+int select(int maxfdp1, fd_set *restrict readfds, fd_set *restrict writefds,
+fd_set *restrict exceptfds, struct timeval *restrict tvptr);
+Returns: count of ready descriptors, 0 on timeout, -1 on error
+最后一个参数tvptr，指定愿意等待的时间：
+l          tvptr==NULL，永久等待。当所指定的描述符中的一个已经准备好或捕捉到一个信号则返回。如果捕捉到一个信号，则select返回-1，errno设置为EINTR。
+l          tvptr->tv_sec==0 && tvptr->tv_usec==0，完全不等待。这是得到多个描述符状态而不阻塞select函数的轮询方法。
+l          tvptr->tv_sec!=0 || tvptr->tv_usec!=0，等待指定的秒数和微秒数。当指定的描述符之一已准备好，或当指定的时间值已经超时，或捕捉到信号时，函数返回。在linux下，若在该时间值尚未超过时select就返回，那么将用余留时间更新tvptr指向的结构。
+中间三个参数readfds、writefds和exceptfds是指向描述符集的指针。这三个描述符集说明了我们关心的可读、可写或出于异常条件的各个描述符。每个描述符集存放在一个fd_set数据类型中。这种数据类型为每一可能的描述符保持一位。描述符集的函数接口（可能实现为宏）包括：调用FD_ZERO将一个指定的fd_set变量的所有位设置为0；调用FD_SET设置一个fd_set变量的指定位；调用FD_CLR将一指定位清楚；调用FD_ISSET测试一指定位是否设置。
+#include <sys/select.h>
+int FD_ISSET(int fd, fd_set *fdset);
+Returns: nonzero if fd is in set, 0 otherwise
+void FD_CLR(int fd, fd_set *fdset);
+void FD_SET(int fd, fd_set *fdset);
+void FD_ZERO(fd_set *fdset);
+         select的第一个参数maxfdp1的意思是最大描述符加1，即在三个描述符集中找出最大描述符编号值，然后加1。
+         select有三个可能的返回值：
+l          返回值-1表示出错。如捕捉到一个信号。在这种情况下，将不修改其中任何描述符集。
+l          返回值0表示没有描述符准备好。
+l          正返回值表示已经准备好的描述符数，该值是三个描述符集中已经准备好的描述符数之和。
+对于准备好的意思是，对读写集中的一个描述符的read或write操作不会阻塞，对异常状态集中的一个描述符有一个未决异常状态（包括1）在网络连接上到达的带外数据2）在处于数据包模式的伪终端上发生了某些状态）。如果在一个描述符上碰到了文件结尾处，则select认为该描述符是可读的，因为调用read将返回0。
+
+pselect
+ 
+ 
+#include <sys/select.h>
+int pselect(int maxfdp1, fd_set *restrict readfds, fd_set *restrict writefds,
+fd_set *restrict exceptfds, const struct timespec *restrict tsptr,
+            const sigset_t *restrict sigmask);
+Returns: count of ready descriptors, 0 on timeout, -1 on error
+它与select的区别在于：
+l          pselect使用timespec结构指定超时值。timespec结构以秒和纳秒表示时间，而非秒和微秒。
+l          pselect的超时值被声明为const，这保证了调用pselect不会改变timespec结构。
+l          pselect可使用一个可选择的信号屏蔽字。在调用pselect时，以原子操作的方式安装该信号屏蔽字，在返回时恢复以前的信号屏蔽字。
+
+poll
+ 
+ 
+#include <poll.h>
+int poll(struct pollfd fdarray[], nfds_t nfds, int timeout);
+Returns: count of ready descriptors, 0 on timeout, 1 on error
+struct pollfd {
+     int   fd;       /* file descriptor to check, or <0 to ignore */
+     short events;   /* events of interest on fd */
+     short revents;  /* events that occurred on fd */
+};
+与select不同，poll不是为每个状态构造一个描述符集，而是构造一个pollfd结构数组，每个数组元素指定一个描述符编号以及对其所关心的状态。pollfd结构中的events告诉内核我们队该描述符关心的是什么。poll函数返回时，内核设置revents成员，以说明对该描述符已经发生了什么事件。fdarray数组中的元素数由nfds说明。timeout参数说明愿意等待的时间：1）timeout==-1，永久等待；2）timeout==0，不等待；3）timeout>0，等待timeout毫秒。
+         实验程序如下：
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <sys/select.h>
+#include <poll.h>
+#include "apue.h"
+ 
+int main()
+{
+     fd_set rfds, wfds;
+     int fd, result;
+     char buf[10];
+     struct pollfd fds[2];
+ 
+     if((fd = open("tempselect", O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR)) < 0)
+       err_sys("open tempselect error");
+     FD_ZERO(&rfds);
+     FD_ZERO(&wfds);
+     FD_SET(fd, &rfds);
+     FD_SET(STDIN_FILENO, &wfds);
+     if((result = select(fd+1, &rfds, &wfds, NULL, NULL)) == -1)
+       perror("select error");
+     else if(result == 0)
+       printf("no fd ready/n");
+     else
+     {
+       printf("%d fd(s) ready/n", result);
+       if(FD_ISSET(fd, &rfds))
+            printf("fd is ready for read/n");
+       if(read(fd, buf, 10) < 0)
+            perror("read fd error");
+       if(FD_ISSET(STDIN_FILENO, &wfds))
+            printf("STDIN is ready for write/n");
+     }
+ 
+     fds[0].fd = fd;
+     fds[0].events = POLLIN;
+     fds[1].fd = STDIN_FILENO;
+     fds[1].events = POLLOUT;
+     if((result = poll(fds, 2, -1)) == -1)
+       perror("poll error");
+     else
+     {
+       printf("%d fd(s) ready/n", result);
+       if(fds[0].revents == POLLIN)
+            printf("fd is ready for read/n");
+       if(read(fd, buf, 10) < 0)
+            perror("read fd error");
+       if(fds[1].revents == POLLOUT)
+            printf("STDIN is ready for write/n");
+     }
+     exit(0);
+}
+         运行结果如下。可以看到select和poll函数只负责确定read和write操作是否会被阻塞，而不进行文件访问权限检查。
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+2 fd(s) ready
+fd is ready for read
+read fd error: Bad file descriptor
+STDIN is ready for write
+2 fd(s) ready
+fd is ready for read
+read fd error: Bad file descriptor
+STDIN is ready for write

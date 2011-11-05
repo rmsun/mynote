@@ -1,0 +1,140 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:58:47+08:00
+
+====== 20 文件记录锁 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-25
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第14章。
+2.          总结了文件记录锁的基本概念和使用方法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+记录锁
+记录锁（record locking）的功能是：锁定文件中的一个区域（也可能是整个文件），使得当一个进程正在读或修改文件的某个部分时，它可以阻止其它进程修改同一文件区。其互斥规则与读写锁相同。POSIX.1标准使用fcntl函数作为记录锁的接口。
+#include <fcntl.h>
+int fcntl(int filedes, int cmd, ... /* struct flock *flockptr */ );
+Returns: depends on cmd if OK, -1 on error
+struct flock {
+     short l_type;   /* F_RDLCK, F_WRLCK, or F_UNLCK */
+     off_t l_start;  /* offset in bytes, relative to l_whence */
+     short l_whence; /* SEEK_SET, SEEK_CUR, or SEEK_END */
+     off_t l_len;    /* length, in bytes; 0 means lock to EOF */
+     pid_t l_pid;    /* returned with F_GETLK */
+};
+对于记录锁，cmd是F_GETLK、F_SETLK或F_SETLKW。第三个参数是一个指向flock结构的指针。
+l          F_GETLK：判断由flockptr所描述的锁是否会被另外一把锁所排斥（阻塞）。如果存在一把锁，则把该现锁的信息写到flockptr指向的结构中。如果不存在，则除了将l_type设置为F_UNLCK之外，结构中的其它信息保持不变。
+l          F_SETLK：设置由flcokptr所描述的锁。如果试图建立一把读锁（l_type设为F_RDLCK）或写锁（l_type设为F_WRLCK）,而按照锁互斥规则不能允许，则fcntl立即出错返回，errno设置为EACCES或EAGAIN。如果不希望在建立锁时可能产生的长期阻塞，则应使用此项，并对返回结果进行测试，以判别是否成功地建立了所要求的锁。
+l          F_SETLKW：这是F_SETLK的阻塞版本。
+对于flock结构，说明如下：
+n          l_type为锁的类型，可以是F_RDLCK（共享读锁）、F_WRLCK（独占性写锁）或F_UNLCK（解锁一个区域）。
+n          要加锁或解锁区域的起始字节偏移量由l_start和l_where两者决定。
+n          区域的字节长度由l_len表示。
+n          具有能阻塞当前进程的锁，其持有进程的ID存放在l_pid中，仅由F_GETLK返回。
+n          flock描述的区域可以在当前文件尾端处开始或越过其尾端处开始，但是不能在文件起始位置之前开始。
+n          若l_len为0，则表示锁的区域从其起点开始直到最大可能偏移量为止，即不管添加到该文件中多少数据，它们都处于锁的范围内。
+n          为了锁整个文件，可以将l_start指定为0，l_whence指定为SEEK_SET，且l_len指定为0。
+关于记录锁，还需要记忆的要点有：
+u        如果一个进程对一个文件区间已经有了一把锁，后来该进程又试图在同一文件区间再加一把锁，那么新锁将替换老锁。
+u        加读锁时，文件描述符必须是读打开；加写锁时，文件描述符必须是写打开。
+u        在设置或释放记录锁时，系统按要求组合或裂开相邻区。
+u        F_GETLK指示是否有现存的锁阻止调用进程设置它自己的锁，因此不能用它来测试进程自己是否在文件的某一部分持有一把锁，因为进程可以在这一区域用新锁替换老锁。
+u        如果一个进程已经控制了文件中的一个加锁区域，然后又试图对另一个进程控制的区域加锁，则有发生死锁的可能性。内核将检测死锁，并选择一个进程接收出错返回。
+u        当一个进程终止时，它所建立的锁全部释放。
+u        因为flock结构关联在v结点上，任何时候关闭一个描述符时，进程通过这一描述符可以引用的文件上的任何一把锁都被释放。
+u        由fork产生的子进程不继承父进程所设置的记录锁。
+u        在执行exec后，新程序可以继承原执行程序的锁。但是，如果对一个文件描述符设置了close-on-exec标志，那么对相应文件的所有记录锁都将被释放。
+u        对一个特定文件打开其设置组ID位并关闭其组执行位，则对该文件开启强制性锁机制。
+实验程序如下：
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include "apue.h"
+ 
+int lock_reg(int fd, int cmd, int type, off_t offset, int whence, off_t len)
+{
+     struct flock lock;
+     lock.l_type = type;    /* F_RDLCK, F_WRLCK, F_UNLCK */
+     lock.l_start = offset; /* byte offset, relative to l_whence */
+     lock.l_whence = whence;     /* SEEK_SET, SEEK_CUR, SEEK_END */
+     lock.l_len = len;      /* #bytes (0 means to EOF) */
+     return(fcntl(fd, cmd, &lock));
+}
+ 
+void print_lock(struct flock *lock)
+{
+     printf("lock: type=%d, start=%d, whence=%d, len=%d, pid=%d/n",
+         lock->l_type, lock->l_start, lock->l_whence, lock->l_len, lock->l_pid);
+}
+ 
+pid_t lock_test(int fd, int type, off_t offset, int whence, off_t len)
+{
+     struct flock lock;
+ 
+     lock.l_type = type;    /* F_RDLCK or F_WRLCK */
+     lock.l_start = offset; /* byte offset, relative to l_whence */
+     lock.l_whence = whence;     /* SEEK_SET, SEEK_CUR, SEEK_END */
+     lock.l_len = len;      /* #bytes (0 means to EOF) */
+     if (fcntl(fd, F_GETLK, &lock) < 0)
+       err_sys("fcntl error");
+     if (lock.l_type == F_UNLCK)
+       return(0);       /* false, region isn't locked by another proc */
+     else
+     {
+       print_lock(&lock);
+       return(lock.l_pid);  /* true, return pid of lock owner */
+     }
+}
+ 
+int main()
+{
+     char buf[20]="hello world.";
+     int fd1, fd2;
+     pid_t pid;
+   
+     if((fd1 = open("templock", O_RDWR|O_CREAT|O_TRUNC , S_IRUSR|S_IWUSR)) < 0)
+       err_sys("open error");
+     /*能够越过文件尾端加锁，第1字节的写锁*/
+     if(lock_reg(fd1, F_SETLK, F_WRLCK, 0, SEEK_END, 1) < 0)
+       err_sys("F_SETLK F_WRLCK 1 error");
+     if(write(fd1, buf, strlen(buf)+1) != strlen(buf)+1)
+       err_sys("write error");
+     /*第2字节的写锁*/
+     if(lock_reg(fd1, F_SETLK, F_WRLCK, 1, SEEK_SET, 1) < 0)
+       err_sys("F_SETLK F_WRLCK 2 error");
+     /*第3字节的读锁*/
+     if(lock_reg(fd1, F_SETLK, F_RDLCK, 2, SEEK_SET, 1) < 0)
+       err_sys("F_SETLK F_RDLCK 3 error");
+     fd2 = dup(fd1);
+     /*不能检测自己的锁*/
+     if(lock_test(fd2, F_RDLCK, 0, SEEK_SET, 2) == 0)
+       printf("parent no F_RDLCK, 0, SEEK_SET, 2/n");
+     if((pid = fork()) < 0)
+       err_sys("fork error");
+     else if(pid == 0)
+     {
+       /*锁合并，返回第1-2字节的写锁*/
+       if(lock_test(fd2, F_RDLCK, 0, SEEK_SET, 3) == 0)
+            printf("child no F_RDLCK, 0, SEEK_SET, 3/n");
+       /*读锁不互斥*/
+       if(lock_test(fd2, F_RDLCK, 2, SEEK_SET, 1) == 0)
+            printf("child no F_RDLCK, 2, SEEK_SET, 1/n");
+       exit(0);
+     }
+     if(waitpid(pid, NULL, 0) < 0)
+       err_sys("waitpid error");
+     exit(0);
+}
+         运行结果如下：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+parent no F_RDLCK, 0, SEEK_SET, 2
+lock: type=1, start=0, whence=0, len=2, pid=5772
+child no F_RDLCK, 2, SEEK_SET, 1

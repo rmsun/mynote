@@ -1,0 +1,147 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:00:56+08:00
+
+====== 27 进程间通信之共享存储 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-9-1
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第15章。
+2.          总结了进程间通信的一种机制——共享存储的基本概念和使用方法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+共享存储
+共享存储（Shared Memory）允许两个或更多进程共享一个给定的存储区。由于数据不需要在进程间进行复制，因此它是最快的一种IPC。唯一需要注意的问题是，多个进程之间对一给定存储区的同步访问。通常，信号量被用来实现对共享存储访问的同步，此外，记录锁也可用于这种场合。
+         内核为每个共享存储段设置了一个shmid_ds结构，其中包含ipc_perm结构，用以规定存储段的访问权限和所有者。系统中，关于共享存储段的限制包括：共享存储段的最大字节数、共享存储段的最小字节数、共享存储段的最大段数以及每个进程共享存储段的最大段数。
+struct shmid_ds {
+     struct ipc_perm  shm_perm;    /* see Section 15.6.2 */
+     size_t           shm_segsz;   /* size of segment in bytes */
+     pid_t            shm_lpid;    /* pid of last shmop() */
+     pid_t            shm_cpid;    /* pid of creator */
+     shmatt_t         shm_nattch;  /* number of current attaches */
+     time_t           shm_atime;   /* last-attach time */
+     time_t           shm_dtime;   /* last-detach time */
+     time_t           shm_ctime;   /* last-change time */
+     .
+};
+
+创建共享存储段
+要创建新的共享存储段或者引用一个现存的共享存储段，需要调用shmget函数。创建方法与消息队列和信号量一样，或者key是IPC_PRIVATE，或者key当前未与共享存储段相结合且flag中指定了IPC_CREAT位。新共享存储段的访问权限根据flag中的访问权限位设置。函数返回共享存储段ID，用于其它操作。
+#include <sys/shm.h>
+int shmget(key_t key, size_t size, int flag);
+Returns: shared memory ID if OK, -1 on error
+         参数size是该共享存储段的长度，单位为字节，通常取为系统页长的整数倍。如果正在创建一个新的共享存储段，则必须指定其size，段内的内容初始化为0。如果是引用一个现存的共享存储段，则将size指定为0。
+
+操作共享存储段
+shmctl函数对共享存储段执行多种操作。
+#include <sys/shm.h>
+int shmctl(int shmid, int cmd, struct shmid_ds *buf);
+Returns: 0 if OK, -1 on error
+         cmd参数指定下列5种命令中的一种，使其在shmid指定的段上执行。
+l          IPC_STAT，取此段的shmid_ds结构，并将它存放在由buf指向的结构中。
+l          IPC_SET，按buf指向结构中的值设置此段的shmid_ds结构中的三个字段：shm_perm.uid、 shm_perm.gid以及 shm_perm.mode。调用进程的有效用户ID必须等于shm_perm.cuid或shm_perm.uid，或者是具有超级用户权限的进程。
+l          IPC_RMID，从系统中删除该共享存储段。与消息队列和信号量不同，每个共享存储段有一个连接计数（shmid_ds结构中的shm_nattch字段），除非使用该段的最后一个进程终止或与该段脱接，否则不会实际上删除该存储段。然而，不管此段是否仍在使用，该段标识符立即被删除，即不能再用shmat与该段连接。调用进程的有效用户ID必须等于shm_perm.cuid或shm_perm.uid，或者是具有超级用户权限的进程。
+l          SHM_LOCK，将共享存储段锁定在内存中，此命令只能由超级用户执行。
+l          SHM_UNLOCK，解锁共享存储段，此命令只能由超级用户执行。
+
+连接共享存储段
+一旦创建了一个共享存储段，进程就可以调用shmat函数将其连接到自己的地址空间中。
+#include <sys/shm.h>
+int shmdt(void *addr);
+Returns: 0 if OK, -1 on error
+共享存储段连接到调用进程的哪个地址上与addr参数以及在flag中是否指定SHM_RND位有关。
+l          如果addr为0，则此段连接到由内核选择的第一个可用地址上，这时推荐的方式。
+l          如果addr非0，并且没有指定SHM_RND，则此段连接到addr所指定的地址上。
+l          如果addr非0，并且指定了SHM_RND，则此段连接到（addr-（addr mod SHMLBA））所表示的地址上，即将地址向下取最近1个SHMLBA的倍数。
+如果在flag中指定了SHM_RDONLY位，则以只读方式连接此段，否则以读写方式连接此段。如果shmat成功执行，内核将该共享存储段shmid_ds结构中的shm_nattch计数加1，且返回值是该段所连接的实际地址，如果出错则返回-1。
+
+脱接共享存储段
+当对共享存储段的操作已经结束时，则调用shmdt脱接该段。addr参数是以前调用shmat时的返回值。如果成功，shmdt将使相关shmid_ds结构中的shm_nattch计数减1。注意，这并不从系统中删除共享存储段的标识符以及数据结构。该标识符仍然存在，直到某个进程调用shmctl删除它。
+#include <sys/shm.h>
+int shmdt(void *addr);
+Returns: 0 if OK, -1 on error
+         实验程序如下：
+#include <sys/ipc.h>
+#include <sys/shm.h>
+#include <sys/sem.h>
+#include "apue.h"
+ 
+#define SHM_SIZE 1024
+ 
+union semun {
+     int val;          /* value for SETVAL */
+     struct semid_ds *buf;  /* buffer for IPC_STAT & IPC_SET */
+     unsigned short *array; /* array for GETALL & SETALL */
+     struct seminfo *__buf; /* buffer for IPC_INFO */
+     void *__pad;
+};
+ 
+int main()
+{
+     key_t key;
+     pid_t pid;
+     int shmid, semid;
+     char *shm_addr;
+     union semun sem_val;
+     struct sembuf sem_buf;
+ 
+     if((key = ftok("/home/pydeng", 'p')) == -1)
+       err_sys("ftok error");
+     if((shmid = shmget(key, SHM_SIZE, IPC_CREAT | 0666)) == -1)
+       err_sys("create shm error");
+     if((semid = semget(key, 1, IPC_CREAT | 0666)) == -1)
+       err_sys("create sem error");
+     sem_val.val = 1;
+     if(semctl(semid, 0, SETVAL, sem_val) == -1)
+       err_sys("semctl SETVAL error");
+     if((pid = fork()) < 0)
+       err_sys("fork error");
+     else if(pid == 0)
+     {
+       if((shm_addr = shmat(shmid, 0, 0)) == (void *)-1)
+            err_sys("shmat error");
+       sem_buf.sem_num = 0;
+       sem_buf.sem_op = -1;
+       sem_buf.sem_flg = SEM_UNDO;
+       if(semop(semid, &sem_buf, 1) == -1)
+            err_sys("semop -1 error");
+       memcpy(shm_addr, "hello, parent./n", 16);
+       printf("child: %s", shm_addr);
+       sem_buf.sem_op = 1;
+       if(semop(semid, &sem_buf, 1) == -1)
+            err_sys("semop -1 error");
+       if(shmdt(shm_addr) == -1)
+            err_sys("shmdt error");
+       exit(0);
+     }
+     if((shm_addr = shmat(shmid, 0, 0)) == (void *)-1)
+       err_sys("shmat error");
+     sem_buf.sem_num = 0;
+     sem_buf.sem_op = -1;
+     sem_buf.sem_flg = SEM_UNDO;
+     if(semop(semid, &sem_buf, 1) == -1)
+       err_sys("semop -1 error");
+     memcpy(shm_addr, "hello, child./n", 15);
+     printf("parent: %s", shm_addr);
+     sem_buf.sem_op = 1;
+     if(semop(semid, &sem_buf, 1) == -1)
+       err_sys("semop -1 error");
+     if(semctl(semid, 0, IPC_RMID, 0) == -1)
+       err_sys("semctl IPC_RMID error");
+     if(shmdt(shm_addr) == -1)
+       err_sys("shmdt error");
+     if(shmctl(shmid, IPC_RMID, NULL) == -1)
+       err_sys("shmctl IPC_RMID error");
+     exit(0);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+child: hello, parent.
+parent: hello, child.

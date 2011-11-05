@@ -1,0 +1,762 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:43:32+08:00
+
+====== UNIX共享内存总结 ======
+Created Thursday 20 October 2011
+
+共享内存可以说是最有用的进程间通信方式，也是最快的IPC形式。两个不同进程A、B共享内存的意思是，同一块物理内存被映射到进程A、B各自的进程地址空间。进程A可以即时看到进程B对共享内存中数据的更新，反之亦然。由于多个进程共享同一块内存区域，必然需要某种同步机制，互斥锁和信号量都可以。采用共享内存通信的一个显而易见的好处是效率高，因为进程可以直接读写内存，而不需要任何数据的拷贝。因此，采用共享内存的通信方式效率是非常高的。
+
+ 
+
+【应用场景】
+
+ 
+
+1. 进程间通讯-生产者消费者模式
+
+ 
+
+    生产者进程和消费者进程通讯常使用共享内存，比如一个网络服务器，接入进程收到数据包后，直接写到共享内存中，并唤醒处理进程，处理进程从共享内存中读数据包，进行处理。当然，这里要解决互斥的问题。
+
+ 
+
+2. 父子进程间通讯
+
+ 
+
+    由于fork产生的子进程和父进程不共享内存区，所以父子进程间的通讯也可以使用共享内存，以POSIX共享内存为例，父进程启动后使用MAP_SHARED建立内存映射，并返回指针ptr。fork结束后，子进程也会有指针ptr的拷贝，并指向同一个文件映射。这样父、子进程便共享了ptr指向的内存区。
+
+ 
+
+3. 进程间共享-只读模式
+
+ 
+
+    业务经常碰到一种场景，进程需要加载一份配置文件，可能这个文件有100K大，那如果这台机器上多个进程都要加载这份配置文件时，比如有200个进程，那内存开销合计为20M，但如果文件更多或者进程数更多时，这种对内存的消耗就是一种严重的浪费。比较好的解决办法是，由一个进程负责把配置文件加载到共享内存中，然后所有需要这份配置的进程只要使用这个共享内存即可。
+
+ 
+
+【共享内存分类】
+
+ 
+
+1. POSIX共享内存对象
+
+ 
+
+const char shmfile[] = "/tmp";
+const int size = 100;
+
+ 
+
+shm_open创建一个名称为tmp，大小为100字节的共享内存区对象后，在/dev/shm/下可以看到对应的文件，cat可以看到内容。
+
+root:/home/#ls -al /dev/shm/tmp 
+-rw------- 1 root root 100 10-15 13:37 /dev/shm/tmp
+
+ 
+
+访问速度：非常快，因为 /dev/shm 是tmpfs的文件系统， 可以看成是直接对内存操作的，速度当然是非常快的。
+
+ 
+
+持续性：随内核，即进程重启共享内存中数据不会丢失，内核自举或显示调用shm_unlink或rm掉文件删除后丢失。
+
+ 
+
+2.  POSIX内存映射文件
+
+
+
+const char shmfile[] = "./tmp.shm";
+const int size = 100;
+
+ 
+
+open在指定目录下创建指定名称后文件，cat可以看到内容。
+
+
+root:/home/#ls -al ./tmp.shm
+
+-rw-------  1 root    root    100 10-15 13:42 tmp.shm
+
+ 
+
+
+访问速度：慢于内存区对象，因为内核为同步或异步更新到文件系统中，而内存区对象是直接操作内存的。
+
+
+持续性：随文件，即进程重启或内核自举不后丢失，除失显示rm掉文件后丢失。
+
+ 
+
+3. SYSTEM V共享内存
+
+ 
+
+共享内存创建后，执行ipcs命令，会打印出相应的信息，比如下面所示，key为申请时分配的，可以执行ipcrm -M 0x12345678 删除，nattch字段为1表示有一个进程挂载了该内存。
+
+ 
+
+------ Shared Memory Segments --------
+key        shmid      owner      perms      bytes      nattch     status     
+0x12345678 32769      root      644        10         1
+
+ 
+
+访问速度：非常快，可以理解为全内存操作。
+
+持续性： 随内核，即进程重启共享内存中数据不会丢失，内核自举或显示调用shmdt或使用ipcrm删除后丢失。
+
+ 
+
+与POSIX V共享内存区对象不同的是，SYSTEM V的共享内存区对象的大小是在调用shmget创建时固定下来的，而POSIX共享内存区大小可以在任何时刻通过ftruncate修改。
+
+ 
+
+ 
+
+【代码示例】
+
+ 
+
+下面给出三种共享内存使用方法的示例代码，都采用父子进程间通讯，并未考虑互斥，仅做示例供大家参考。
+
+ 
+
+1.POSIX共享内存对象
+
+view plain
+/* 
+ * Posix shared memory is easy to use in Linux 2.6, in this program, we  
+ * shared a memory between parent process and child process, stored several 
+ * objects of struct namelist in it. We store number of items in ptr[0]. 
+ */  
+  
+#include <unistd.h>  
+#include <stdio.h>  
+#include <stdlib.h>  
+#include <string.h>  
+#include <sys/ipc.h>  
+#include <sys/mman.h>  
+#include <sys/types.h>  
+#include <sys/wait.h>  
+#include <sys/stat.h>  
+#include <fcntl.h>  
+#include <errno.h>  
+  
+#define FILE_MODE (S_IRUSR | S_IWUSR)  
+  
+const char shmfile[] = "/tmp";  
+const int size = 100;  
+  
+struct namelist   
+{  
+ int  id;   
+ char name[20];  
+};  
+  
+int   
+main(void)  
+{  
+ int fd, pid, status;   
+ int *ptr;  
+ struct stat stat;  
+    
+ // create a Posix shared memory  
+ int flags = O_RDWR | O_CREAT;  
+ fd = shm_open(shmfile, flags, FILE_MODE);  
+    if (fd < 0) {  
+        printf("shm_open failed, errormsg=%s errno=%d", strerror(errno), errno);  
+        return 0;  
+    }  
+ ftruncate(fd, size);  
+ ptr = (int *)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);   
+  
+ pid = fork();  
+ if (pid == 0) { // child process  
+  printf("Child %d: start/n", getpid());  
+    
+  fd = shm_open(shmfile, flags, FILE_MODE);  
+  fstat(fd, &stat);    
+  ptr = (int *)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);   
+  close(fd);  
+  struct namelist tmp;  
+  
+  // store total num in ptr[0];  
+  *ptr = 3;  
+    
+  ptr++;  
+  namelist *cur = (namelist *)ptr;  
+  
+  // store items  
+  tmp.id = 1;  
+  strcpy(tmp.name, "Nellson");  
+  *cur++ = tmp;  
+  tmp.id = 2;  
+  strcpy(tmp.name, "Daisy");  
+  *cur++ = tmp;  
+  tmp.id = 3;  
+  strcpy(tmp.name, "Robbie");  
+  *cur++ = tmp;  
+  
+  exit(0);  
+ } else{ // parent process  
+  sleep(1);  
+  struct namelist tmp;  
+  
+  int total = *ptr;  
+  printf("/nThere is %d item in the shm/n", total);   
+    
+  ptr++;  
+  namelist *cur = (namelist *)ptr;  
+  
+  for (int i = 0; i< total; i++) {  
+   tmp = *cur;  
+   printf("%d: %s/n", tmp.id, tmp.name);  
+   cur++;  
+  }  
+  
+  printf("/n");  
+  waitpid(pid, &status, 0);  
+ }  
+  
+ // remvoe a Posix shared memory from system  
+ printf("Parent %d get child status:%d/n", getpid(), status);  
+ return 0;  
+}  
+  
+
+ 
+
+ 
+
+编译执行
+
+root:/home/ftpuser/ipc#g++ -o shm_posix -lrt shm_posix.cc      
+root:/home/ftpuser/ipc#./shm_posix 
+Child 2280: start
+
+There is 3 item in the shm
+1: Nellson
+2: Daisy
+3: Robbie
+
+Parent 2279 get child status:0
+
+ 
+
+2.POSIX文件映射
+
+ 
+
+view plain
+/* 
+ * Posix shared memory is easy to use in Linux 2.6, in this program, we  
+ * shared a memory between parent process and child process, stored several 
+ * objects of struct namelist in it. We store number of items in ptr[0]. 
+ */  
+  
+#include <unistd.h>  
+#include <stdio.h>  
+#include <stdlib.h>  
+#include <string.h>  
+#include <sys/ipc.h>  
+#include <sys/mman.h>  
+#include <sys/types.h>  
+#include <sys/wait.h>  
+#include <sys/stat.h>  
+#include <fcntl.h>  
+  
+#define FILE_MODE (S_IRUSR | S_IWUSR)  
+  
+const char shmfile[] = "./tmp.shm";  
+const int size = 100;  
+  
+struct namelist   
+{  
+ int  id;   
+ char name[20];  
+};  
+  
+int main(void)  
+{  
+ int fd, pid, status;   
+ int *ptr;  
+ struct stat stat;  
+    
+ // create a Posix shared memory  
+ int flags = O_RDWR | O_CREAT;  
+ fd = open(shmfile, flags, FILE_MODE);  
+ ftruncate(fd, size);  
+ ptr = (int *)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);   
+  
+ pid = fork();  
+ if (pid == 0) { // child process  
+  printf("Child %d: start/n", getpid());  
+    
+  fd = open(shmfile, flags, FILE_MODE);  
+  fstat(fd, &stat);    
+  ptr = (int *)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);   
+  close(fd);  
+  struct namelist tmp;  
+  
+  // store total num in ptr[0];  
+  *ptr = 3;  
+    
+  ptr++;  
+  namelist *cur = (namelist *)ptr;  
+  
+  // store items  
+  tmp.id = 1;  
+  strcpy(tmp.name, "Nellson");  
+  *cur++ = tmp;  
+  tmp.id = 2;  
+  strcpy(tmp.name, "Daisy");  
+  *cur++ = tmp;  
+  tmp.id = 3;  
+  strcpy(tmp.name, "Robbie");  
+  *cur++ = tmp;  
+  
+  exit(0);  
+ } else{ // parent process  
+  sleep(1);  
+  struct namelist tmp;  
+  
+  int total = *ptr;  
+  printf("/nThere is %d item in the shm/n", total);   
+    
+  ptr++;  
+  namelist *cur = (namelist *)ptr;  
+  
+  for (int i = 0; i< total; i++) {  
+   tmp = *cur;  
+   printf("%d: %s/n", tmp.id, tmp.name);  
+   cur++;  
+  }  
+    
+  printf("/n");  
+  waitpid(pid, &status, 0);  
+ }  
+ printf("Parent %d get child status:%d/n", getpid(), status);  
+ return 0;  
+}  
+
+ 
+
+编译执行
+
+ 
+
+root:/home/ftpuser/ipc#g++ -o map_posix map_posix.cc 
+root:/home/ftpuser/ipc#./map_posix 
+Child 2300: start
+
+There is 3 item in the shm
+1: Nellson
+2: Daisy
+3: Robbie
+
+Parent 2299 get child status:0
+
+ 
+
+3.SYSTEM V 共享内存对象
+
+ 
+
+view plain
+/* 
+ * System V shared memory in easy to use in Linux 2.6, in this program, we  
+ * shared a memory between parent process and child process, stored several 
+ * objects of struct namelist in it. We store number of items in ptr[0]. 
+ */  
+  
+#include <unistd.h>  
+#include <stdio.h>  
+#include <stdlib.h>  
+#include <string.h>  
+#include <sys/ipc.h>  
+#include <sys/shm.h>  
+#include <sys/types.h>  
+#include <sys/wait.h>  
+  
+#define SVSHM_MODE (SHM_R | SHM_W | SHM_R>>3 | SHM_R>>6)  
+const char shmfile[] = "./tmp.shm";  
+const int shmsize = 10;  
+  
+struct namelist   
+{  
+ int  id;   
+ char name[20];  
+};  
+  
+int   
+main(void)  
+{  
+ int shmid, pid, status;   
+ int *ptr;  
+ struct shmid_ds buff;  
+  
+ // create a systym V shared memory  
+ //shmid = shmget(ftok(shmfile, 0), shmsize, SVSHM_MODE | IPC_CREAT);  
+ shmid = shmget((key_t)0x12345678, shmsize, SVSHM_MODE | IPC_CREAT);  
+  
+ pid = fork();  
+ if (pid == 0) { // child process  
+  printf("Child %d: start/n", getpid());  
+  //shmid = shmget(ftok(shmfile, 0), shmsize, SVSHM_MODE | IPC_CREAT);  
+  shmid = shmget((key_t)0x12345678, shmsize, SVSHM_MODE | IPC_CREAT);  
+  ptr = (int *) shmat(shmid, NULL, 0);  
+  shmctl(shmid, IPC_STAT, &buff);  
+  
+  struct namelist tmp;  
+  
+  // store total num in ptr[0];  
+  *ptr = 3;  
+    
+  ptr++;  
+  namelist *cur = (namelist *)ptr;  
+  
+  // store items  
+  tmp.id = 1;  
+  strcpy(tmp.name, "Nellson");  
+  *cur++ = tmp;  
+  tmp.id = 2;  
+  strcpy(tmp.name, "Daisy");  
+  *cur++ = tmp;  
+  tmp.id = 3;  
+  strcpy(tmp.name, "Robbie");  
+  *cur++ = tmp;  
+    
+  exit(0);  
+ } else{ // parent process  
+  sleep(1);  
+  shmctl(shmid, IPC_STAT, &buff);  
+  ptr = (int *) shmat(shmid, NULL, 0);   
+  struct namelist tmp;  
+  
+  int total = *ptr;  
+  printf("/nThere is %d item in the shm/n", total);   
+    
+  ptr++;  
+  namelist *cur = (namelist *)ptr;  
+  
+  for (int i = 0; i< total; i++) {  
+   tmp = *cur;  
+   printf("%d: %s/n", tmp.id, tmp.name);  
+   cur++;  
+  }  
+  
+  printf("/n");  
+  waitpid(pid, &status, 0);  
+ }  
+  
+ // remvoe a systym V shared memory from system  
+ shmctl(shmid, IPC_RMID, NULL);  
+ printf("Parent %d get child status:%d/n", getpid(), status);  
+ return 0;  
+}  
+  
+   
+
+ 
+
+编译执行
+
+ 
+
+root:/home/ftpuser/ipc#g++ -o shm_v shm_v.cc  
+root:/home/ftpuser/ipc#./shm_v 
+Child 2323: start
+
+There is 3 item in the shm
+1: Nellson
+2: Daisy
+3: Robbie
+
+Parent 2322 get child status:0
+
+ 
+
+【性能测试】
+
+
+下面对三种方式进行性能测试，比较下差异。
+
+
+测试机信息：
+
+AMD Athlon(tm) Neo X2 Dual Core Processor 6850e
+
+cpu:1.7G
+
+os: Linux 2.6.18
+
+
+ 
+
+测试方式：
+
+打开大小为SIZE的共享内存，映射到一个int型的数组中，循环写数组、读数组。
+
+重复10W次，计算时间开销。
+
+ 
+
+内存大小
+Shmopen+mmap(ms)
+Open+mmap
+Shmget
+4k
+1504
+1470
+1507
+16k
+6616
+6201
+5994
+64k
+25905
+24391
+24315
+256k
+87487
+76981
+69417
+1M
+253209
+263431
+241886
+ 
+
+重复1K次，计算时间开销。
+
+ 
+
+内存大小
+Shmopen+mmap(ms)
+Open+mmap(ms)
+Shmget(ms)
+1M
+5458
+5447
+5404
+4M
+21492
+21447
+21307
+16M
+90880
+93685
+87594
+32M
+178000
+214900
+193000
+ 
+
+分析：
+
+Sytem V方式读写速度快于POSIX方式，而POSIX 共享内存和文件映射方式相差不大， 共享内存性能略优。
+
+ 
+
+附上测试源码：
+
+view plain
+/* 
+ * 共享内存读写速度测试 
+ */  
+#include <unistd.h>  
+#include <stdio.h>  
+#include <stdlib.h>  
+#include <string.h>  
+#include <sys/ipc.h>  
+#include <sys/mman.h>  
+#include <sys/types.h>  
+#include <sys/wait.h>  
+#include <sys/stat.h>  
+#include <fcntl.h>  
+#include <unistd.h>  
+#include <stdio.h>  
+#include <stdlib.h>  
+#include <string.h>  
+#include <sys/ipc.h>  
+#include <sys/mman.h>  
+#include <sys/types.h>  
+#include <sys/wait.h>  
+#include <sys/stat.h>  
+#include <fcntl.h>  
+#include <errno.h>  
+#include <unistd.h>  
+#include <stdio.h>  
+#include <stdlib.h>  
+#include <string.h>  
+#include <sys/ipc.h>  
+#include <sys/shm.h>  
+#include <sys/types.h>  
+#include <sys/wait.h>  
+#include "module_call.h"  
+  
+#define FILE_MODE (S_IRUSR | S_IWUSR)  
+#define SVSHM_MODE (SHM_R | SHM_W | SHM_R>>3 | SHM_R>>6)  
+  
+enum emType  
+{  
+    SHMOPEN = 0x01,  
+    OPEN = 0x02,  
+    SHMGET = 0x04,  
+};  
+  
+void * GetShmMem(emType type, int size)  
+{  
+    void * ptr = NULL;  
+    switch (type)  
+    {  
+        case SHMOPEN:  
+            {  
+                const char shmfile[] = "/tmp";  
+                int flags = O_RDWR | O_CREAT;  
+                int fd = shm_open(shmfile, flags, FILE_MODE);  
+                if (fd < 0)  
+                {  
+                    printf("shm_open failed, errormsg=%s errno=%d/n", strerror(errno), errno);    
+                    return NULL;  
+                }  
+                  
+                ftruncate(fd, size);  
+  
+                ptr = (int *)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);     
+                if (MAP_FAILED == ptr)  
+                {  
+                    printf("mmap failed, errormsg=%s errno=%d/n", strerror(errno), errno);    
+                    return NULL;  
+                }  
+  
+                break;  
+            }  
+        case OPEN:  
+            {  
+                const char shmfile[] = "./tmp.shm";  
+                int flags = O_RDWR | O_CREAT;  
+                int fd = open(shmfile, flags, FILE_MODE);  
+                if (fd < 0)  
+                {  
+                    printf("ope failed, errormsg=%s errno=%d/n", strerror(errno), errno);  
+                    return NULL;  
+                }  
+  
+                ftruncate(fd, size);  
+                  
+                ptr = (int *)mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);                 
+                if (MAP_FAILED == ptr)  
+                {  
+                    printf("mmap failed, errormsg=%s errno=%d/n", strerror(errno), errno);    
+                    return NULL;  
+                }  
+  
+                break;  
+            }  
+  
+        case SHMGET:  
+            {  
+                int shmid;    
+                struct shmid_ds buff;  
+                const char shmfile[] = "./tmp.shm_v";  
+                shmid = shmget(ftok(shmfile, 0), size, SVSHM_MODE | IPC_CREAT);  
+                if (shmid < 0)  
+                {  
+                    printf("shmget failed, errormsg=%s errno=%d/n", strerror(errno), errno);  
+                    return NULL;  
+                }  
+                  
+                ptr = (int *) shmat(shmid, NULL, 0);  
+                if ((void *) -1 == ptr)  
+                {  
+                    printf("shmat failed, errormsg=%s errno=%d/n", strerror(errno), errno);  
+                    return NULL;  
+                }  
+                  
+                shmctl(shmid, IPC_STAT, &buff);  
+                break;  
+            }  
+    }  
+  
+    return ptr;  
+}  
+  
+int realmain(int size, int loop, emType type)  
+{  
+    int * array_int = NULL;  
+  
+    /* get shmmem*/  
+    array_int = (int *)GetShmMem(type, size);  
+    if (NULL == array_int)  
+    {  
+        printf("GetShmMem failed/n");  
+        return -1;  
+    }  
+  
+    /* loop */  
+    int array_num = size/sizeof(int);  
+    modulecall::call_start();  
+    while (0 != loop)  
+    {  
+        /* write */  
+        for (int i = 0; i < array_num; i++)  
+        {  
+            array_int[i] = i;  
+        }  
+  
+        /* read */  
+        for (int i = 0; i < array_num; i++)  
+        {  
+            if (array_int[i] != i)  
+            {  
+                printf("ShmMem is invalid i=%d v=%d/n", i, array_int[i]);  
+                return -1;  
+            }  
+        }  
+      
+        loop--;  
+    }  
+    modulecall::call_end();  
+    printf("timecost=%lld/n", modulecall::call_timecost());  
+  
+    return 0;  
+}  
+  
+int main(int argc, char ** argv)  
+{  
+    if (argc < 4)  
+    {  
+        printf("usage: %s size loop shmtype(1-shmposix 2-mapposix 4-shmv 7-all)/n", argv[0]);  
+        return -1;  
+    }  
+  
+    const int size = atoi(argv[1]);  
+    int loop = atoi(argv[2]);  
+    const int type = atoi(argv[3]);  
+  
+    if ((type&SHMOPEN) == SHMOPEN)  
+    {  
+        printf("shmopen ");  
+        realmain(size, loop, SHMOPEN);  
+    }  
+  
+    if ((type&OPEN) == OPEN)  
+    {  
+        printf("open    ");  
+        realmain(size, loop, OPEN);  
+    }  
+  
+    if ((type&SHMGET) == SHMGET)  
+    {  
+        printf("shmget  ");  
+        realmain(size, loop, SHMGET);  
+    }     
+  
+    return 0;  
+}  

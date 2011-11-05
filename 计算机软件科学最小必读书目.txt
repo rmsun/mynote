@@ -1,0 +1,66 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-09-15T15:20:49+08:00
+
+====== 计算机软件科学最小必读书目 ======
+－－来源于北邮人论坛
+
+Created Thursday 15 September  
+本科不是念计算机的，师弟链接了大牛amiao版内开的书目，感觉太多了，对于不是计算机科班出身的人来说，是很难看完那么多的。仔细删减了再删减，列一下我觉得的计算机软件学科至少应该过一遍的8本，只涵盖“程序语言（C & C++）”、“数据结构”、“操作系统”、“计算机网络”和“计算机系统”五个主题，其他的诸如编译原理，汇编语言，数据库，Java，软件工程，面向对象等等相对外围的主题我觉得不是绝对必要的。  
+   
+里面说了很多废话，其实就是8本书，我觉得是真正的必读，也是我觉得比较实际，能在一年之内看完的：  
+程序语言（C） + 程序语言（C++） + 数据结构 + 操作系统概念 + 操作系统实践 + 计算机网络概念 + 计算机网络实践 + 计算机系统 
+   
+1.	程序语言  
+《The C Programming language》（C程序设计语言）（Brian W. Kernighan & Dennis M. Ritchie）  
+（ps. C语言是计算机软件学科的描述语言，每个学科都有自己的一套描述语言，计算机软件学科的描述语言就是C语言。一般情况下，我们学习的操作系统源代码和TCP/IP协议栈源代码就是Linux内核的那个版本，是用C语言写的，看得懂C语言才可能看得懂操作系统源代码和TCP/IP协议栈源代码，所以学习C语言是必要的。）  
+（ps. Dennis M. Ritchie是C语言的创造者之一，他和Ken Thompson创造C语言只是为了能有效的重写UNIX系统，两个人最终凭UNIX系统拿到了图灵奖。“Hello，World！”就是这本书的原创。）  
+《Accelerated C++》（Andrew Koenig & Barbara E. Moo） 
+《C++ Primer》（Stanley B. Lippman & Josee Lajoie & Barbara E. Moo） 
+（ps. 其实对于初学者，记住了类和对象的语法并不意味着懂了面向对象，但是似乎去记住类和对象的语法已经是一条去了解面向对象的必由之路了，毕竟很少人会从Smalltalk开始学习，那好吧，一门C++这样主流的支持面向对象的语言是绕不过去了。关于C++，我推荐两本书，《Accelerated C++》和《C++ Primer》，它们最大的区别是一厚一薄，我一贯觉得看完《C++ Primer》这样厚厚一本语法书才开始编程是极为荒唐的。所以《Accelerated C++》这样的篇幅会更合适一些，它相当于鼓励人们花一个星期的时间对C++有所了解，然后就直接开始编程了，因为学习编程和学习别的事情所不同的地方在于学习编程是靠实践推动的。虽然我很喜欢《Accelerated C++》这种学院派的行文风格，但也许这也正是它在社区里不被广为接受的原因之一，推荐《C++ Primer》也算是我对中国技术社区这种语法至上理念的一种妥协吧。《The C++ Programming Language》（Bjarne Stroustrup）要是跟其他书一样展开来写不知道该有多厚，所以初学者还是算了。《Effective C++》就像花朵和果实一样醒目，花朵和果实确实能够证明一棵树的茁壮，但是我们应该更在意的还是根本和枝干。《Effective C++》之所以被推崇到如此高度的原因应该是那一场场笔试和面试吧。）  
+（ps. 《Learning Python》（Mark Lutz），脚本语言在实际工程环境中的应用似乎越来越流行，如果学的话，Python应该是个好的选择。）  
+  
+2.	数据结构  
+《Data Structures and Algorithm Analysis in C》（数据结构与算法分析：C语言描述）（Mark Allen Weiss） 
+《Algorithms in C, Parts 1-4  Fundamental Algorithms, Data Structures, Sorting, Searching》（算法: C语言实现 第1-4部分 基础知识、数据结构、排序及搜索）（Robert Sedgewick） 
+（ps. 因为Mark Allen Weiss的书涵盖得太广，对于基础的部分一笔带过，而后面的章节在没学过算法之前只能看得一知半解，所以还是推荐Robert Sedgewick的这本。但是Robert Sedgewick的书在细节上也许涵盖得更广，个人感觉其实已经没比《Introduction to Algorithms》（算法导论）简单多少了，所以我们可以挑那些基础的章节仔细的啃，Robert Sedgewick可没有一笔带过，所以啃得下来的话基础就打得非常扎实了。） 
+（ps. 这条线再深入的话，那么《Introduction to Algorithms》（算法导论）就是不二选择了。） 
+（ps. 关于Robert Sedgewick的和Mark Allen Weiss的书，渊源是这样的，Donald E.Knuth是计算机软件科学的鼻祖，大家也都听说过《The Art of Computer Programming》（计算机程序设计艺术）吧，人家都说学软件的不知道Knuth就好比学物理的不知道牛顿，学音乐的不知道莫扎特贝多芬，不过《The Art of Computer Programming》这种书离我们远了点，实在有兴趣可以翻翻他另一本也很有名的《Concrete Mathematics》（具体数学），《Concrete Mathematics》的内容相当于《The Art of Computer Programming》的第一卷，汉诺塔问题就是这本书的原创。因为Donald E.Knuth太不平民化了，所以有了Robert Sedgewick，Robert Sedgewick是Donald E.Knuth的学生，他用具体的工程语言演示了Knuth的高深理论，书根据所使用工程语言的不同，分别叫做《Algorithms in C》、《Algorithms in C++》、《Algorithms in Java》，每种分别是两本，第一本叫《Parts 1-4》，指的是“基础”“数据结构”“排序”和“查找”，第二本叫《Part 5》，指的是“图算法”。Robert Sedgewick的书太大部头了，不适合当教材，也没有涵盖《Introduction to Algorithms》里那些比较新的主题，所以有了Mark Allen Weiss，Mark Allen Weiss是Robert Sedgewick的学生，他是按照教材的款式写的，也涵盖了《Introduction to Algorithms》里那些比较新的主题，和他老师的风格一样，书根据所使用的工程语言的不同，分别叫做《Data Structures and Algorithm Analysis in C》、《Data Structures and Algorithm Analysis in C++》、《Data Structures and Algorithm Analysis in Java》） 
+（ps. Mark Allen Weiss的另一个系列是《Data Structures and Problem Solving Using C++》和《Data Structures and Problem Solving Using Java》，这个系列是以面向对象的语言特性为主线，以数据结构的实现为实例，详细地解释了这些面向对象的语言特性在具体的问题中是如何运用的，反过来具体的问题是怎么被这些面向对象的语言特性解决的，我个人很多对于C++的真实体悟来源于此书，强烈推荐。） 
+  
+3.	操作系统  
+《Operating System Concepts》（操作系统概念）（Abraham Silberschatz）  
+《Modern Operating Systems》（现代操作系统）（Andrew S. Tanenbaum）  
+《Operating Systems - Internals and Design Principles》（操作系统 - 精髓与设计原理）（William Stallings）  
+（ps. 三本都是操作系统概念，所以三选一即可。Tanenbaum的很偏重工程实际，程序员们应该喜欢。Stallings的都是些宏观的概念。Silberschatz的我没看过，但从多方评价来看，应该也值得推荐）  
+（ps. 说说Andrew S. Tanenbaum吧，linux的前身就是他所写的仅供教学使用的minix，他的另一本书《Operating Systems Design and Implementation》（操作系统设计与实现）详细介绍了minix，两卷本，上卷基于minix讲操作系统原理，下卷带光盘，即为minix源码。从某种意义上来说，TCP/IP协议栈也可以算是操作系统的一部分，应用上两者也是绑死的，所以一般操作系统的大牛们往往也是计算机网络的大牛（比如Dijkstra），Andrew S. Tanenbaum的《Computer Networks》（计算机网络）也是很被推崇的。）  
+《Advanced Programming in the UNIX Environment》（UNIX环境高级编程）（W.Richard Stevens）  
+（ps. apue是操作系统实践最好的书了，要是能啃完它，基本上操作系统的接口应该就都很熟悉了。不过要啃完apue确实是很难的，但是在这个领域真是找不出别的相对简单一点的来替代他，有人推荐《Beginning Linux Programming》（linux程序设计），在我看来，还是差得太远了。）  
+（ps. 这条线深入的话，客观来说，操作系统实践应该包括两部分，即应用和实现，应用就是使用操作系统的接口函数来实现应用程序，也就是apue的内容；而实现就是操作系统的源代码实现，一般来说就是linux内核，但是这部分是很难的，一般只有做嵌入式、写驱动或者做网络安全改协议栈的人才会看这么深。）  
+  
+4.	计算机网络  
+《Computer Networks》（计算机网络）（Andrew S. Tanenbaum）  
+《Computer Networking: A Top-Down Approach Featuring the Internet》（计算机网络 - 自顶向下方法与Internet特色）（James F. Kurose & Keith W. Ross）  
+（ps. 二本都是计算机网络概念，所以二选一即可。）  
+《Internetworking with TCP/IP Vol. III : Client-Server Programming and Applications--BSD Socket Version》（用TCP/IP进行网际互连第三卷 : 客户-服务器编程与应用）（Douglas E. Comer）  
+《Unix Network Programming， Vol. I :Networking APIs》（UNIX网络编程第一卷 : 套接口API）（W. Richard Stevens）  
+（ps. 作为网络应用的实践，W. Richard Stevens的unp还是很难的，不过好在不像apue，unp有《Internetworking with TCP/IP Vol. III》可以作为替代，《Internetworking with TCP/IP Vol. III》比起unp来说简单很多，完全是从零开始，并且是反反复复讲得很细的风格，所以高手们可能不喜欢，会觉得讲得太浅太罗嗦。）  
+（ps. W.Richard Stevens 的盛名确实名符其实，总共写了六本书，除了前面提到的apue以外，还有《Unix Network Programming》（UNIX网络编程）两卷，《TCP/IP Illustracted》（TCP/IP详解）三卷，本来《Unix Network Programming》是计划写三卷的，可惜W.Richard Stevens写完前两卷就英年早逝了。《TCP/IP Illustracted Vol. I : The Protocols》（TCP/IP详解卷1 : 协议）是最好的从实践角度了解网络协议的书。同样，计算机网络实践也应该包括应用和实现，应用就是使用socket的这套接口函数来实现网络应用，也就是《Internetworking with TCP/IP Vol. III》或《Unix Network Programming， Vol. I》的内容。而实现就是TCP/IP协议栈的源代码实现，即为《TCP/IP Illustracted Vol. II : The Implementation》（TCP/IP详解卷2 : 实现）或《Internetworking With TCP/IP Vol II : Design，Implementation，and Internals》（用TCP/IP进行f网际互连第2卷 : 设计、实现和内部构成）的内容。同样，实现比应用难很多。）  
+  
+5.	计算机系统  
+《Computer Systems: A Programmer's Perspective》（深入理解计算机系统）（Randal E. Bryant & David O'Hallaron）  
+（ps. 从后往前看，把之前看的串起来复习一遍，因为书是从底层硬件往上层软件写的，对我们这些做软件的来说，前面计算机体系结构的部分只能尽量看吧。在书中第2部分开始的地方，有章节详细讲了“链接”的内容，个人觉得是很重要的部分。）  
+------------------------------------------------------------------------------------------------------------ 
+   
+对jokerlee兄评论的回复  
+   
+多谢jokerlee的两点补充，我也补充一下我对这两点的相应看法。   
+   
+第一，关于汇编基础；其实说宽泛了应该是C语言以下的底层基础，至少应该包括3门，即汇编语言、计算机体系结构和编译原理，在整个计算机科学体系当中这三门都是重要的。但这个必读书目所针对的对象是，并非计算机科班出身或者计算机基础比较烂而且希望从事计算机软件科学的师弟们（其实就是我们实验室的情况，都是考通信被调剂过来的）。所以，我之所以省略它们，是因为只开这8本，已经怕师弟们嫌多了。书目好开，书就很难一本一本读了，读完这8本已经很不容易了，开得太多我怕师弟们丧失掉学习的信心，所以为了让书目尽量的少，我只能尽量删减掉这三门偏重硬件和底层的内容。另外，csapp前一半即为这三门的部分内容，应该能够涵盖大部分底层的知识了，也希望师弟们过完这8本之后还能有余力翻翻龙书，那就最好不过了。   
+   
+第二， 关于面向对象、软件工程、设计模式；设计模式是总结出来的面向对象技巧，所以这里只有两门，即面向对象和软件工程，这两门在现代软件科学中是重要的，但是对于初学者，我并不推荐这两门的内容。回想我本人的学习经历，学习顺序就是因此而颠倒的，以前在公司里实习的时候听了太多的《设计模式》、《人月神话》、《代码大全》。而事实上，面向对象和软件工程这些内容根本就不是一个在打基础的学生应该看重的。要是连一个函数也写不好，谈什么面向对象，要是连一个应用程序完成其功能的原理也不知道，谈什么软件工程。这是个很简单的道理，就像学做菜，最先应该学好的是油盐酱醋，而不是一上来先看佛跳墙的菜谱，在没有打好基础之前看这些东西，只能是似懂非懂，生搬硬套。所以我觉得，在书目里8本书的这个梯度上不要把面向对象和软件工程看得有多重要，它们至少不是在这个梯度上应该包含的内容，在这个梯度上应该学习的是一些更本质的东西，而面向对象和软件工程应该放在下一个更高的梯度里。然而，两个梯度间的跨度是很大的，这个跨度就是编程实践，需要很长的时间来积累。   
+多说一句，中国的技术社区，大多数人其实是在用软件学院的那套东西来定位自己的，这里不存在孰优孰劣，毕竟市场是需要很多J2EE程序员的。但是其定位是截然不同的，软件学院的路线是一上来先看本Java的语法书，最多最多再学点SQL语句，然后直接开始面向对象和软件工程，对这种定位的路线来说，本书目里这8本书都是可以完全忽略掉的。我想这应该是技术社区里推崇面向对象和软件工程的一个重要原因吧。   
+    
+【 在 jokerlee 的大作中提到: 】   
+: LZ列的书应该是计算机科学的必读的书,  个人觉得汇编基础也是必不可少的，csapp值得推荐   
+: 对于软件科学, 诸如面向对象、软件工程、设计模式也是不可或缺的吧   

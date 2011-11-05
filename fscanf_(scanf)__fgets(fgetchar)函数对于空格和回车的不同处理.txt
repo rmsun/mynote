@@ -1,0 +1,108 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-11-04T21:49:38+08:00
+
+====== fscanf (scanf)  fgets(fgetchar)函数对于空格和回车的不同处理 ======
+Created Friday 04 November 2011
+
+有一道编程如下： 
+      #include <stdio.h> 
+          main() 
+          {int i,flag; 
+          char str[80],c; 
+          FILE *fp; 
+          fp=fopen("text","w"); 
+          flag=1; 
+          while(flag==1) 
+          {printf("\nInput string:\n"); 
+          gets(str); 
+          fprintf(fp,"%s",str); 
+          printf("\nContinue?"); 
+          c=getchar(); 
+          if((c=='N')||(c=='n')) 
+          flag=0; 
+          getchar(); 
+          } 
+          fclose(fp); 
+fp=fopen("text","r"); 
+while(fscanf(fp,"%s",str)!=EOF) 
+{for(i=0;str[i]!='\0';i++) 
+if((str[i]>='a')&&(str[i]<='z')) 
+str[i]-=32; 
+printf("\n%s\n",str); 
+} 
+fclose(fp); 
+} 
+          运行程序时，如果输入“ABC”回车，再输入“DEF”回车，会显示结果“ABCDEF”，但是如果输入的字符串中包含空格,比如输入I AM A STUDENT,结果会将"I" "AM" "A" "STUDENT"这4个字符串分别输出4行上. 
+          要弄清楚这个问题，首先要对fscanf和fgets这两个文件函数的概念有深入的了解，对于字符串输入而言这两个函数有一个典型的区别是：
+          fscanf读到空格或者回车时会把空格或回车转化为\0（字符串结束符）而fgets函数则把空格（回车在下文解释）作为字符接收。
+          有这样一个例子：
+char str[13]；
+scanf("%s",str);
+          如果输入以下12个字符How are you?回车
+          实际上并不是把这12个字符加上\0送到数组str中，而只将空格前的“How”送到str中，由于把“How”作为一个字符串处理，因此在其后加\0。
+          现在我们来看一看在题目的第一个循环中，用gets函数接受字符串的情况。
+          1、输入“ABC回车DEF”。
+          现在我们来说以下fgets函数对于回车的处理方法。
+          fgets函数的定义是这样的：
+          char *fgets(char *s,int n,FILE *fp)
+          当fgets读到回车符时，函数会结束，把回车符也作为一个字送入参数s指向的缓冲区（注意是缓冲区而不是内存），fgets（）函数在读取结束后，再向缓冲区送一个\0字符，从而使缓冲区的字符成为C字符串。
+          也就是说fgets函数读到回车的时候，不象fscanf函数那样在内存中把回车转换\0，而是在缓冲区里面处理的。这样处理的结果是回车不起作用，也就是说当我们输入ABC回车DEF时，ABCDEF在内存中是连续存放的。所以在第二个循环输出时自然不会换行。
+          2、输入“I AM A STUDENT”，在字符中间加空格。
+          在第一次循环中，用fgets读入的结果是“I AM A STUDENT”，空格作为字符处理。那么在第二次循环中，用fscanf读入 “I AM A STUDENT”后将字符串中的空格转换为了\0，也就上将一个字符串分成了四个"I" "AM" "A" "STUDENT"。在这里可能有人要问，那么既然加了\0，为什么循环在读到\0还能继续呢？要注意的是循环的结束条件是EOF（文件结束）而不是\0（文件结束符）。
+          第一次输出"I" 遇到\0输出回车结束，继续判断循环条件发现文件并没有结束，那么继续输出"AM"和回车.......一直到"STUDENT"回车。
+          补充一个问题，如果想让"I" "AM" "A" "STUDENT"输出在同一行上程序应该怎么改？
+          答案就是：fscanf换成fgets(fp, str) 。
+再举一例getchar()函数对空格以及回车的处理：
+#include<stdio.h>
+#define MAX 1000
+main()
+{int c,i,flag,flag1;
+char t[MAX];
+i=0;
+flag=0;
+flag1=1;
+printf("\nPlease input a hexadecimal number:");
+while((c=getchar())!='\0'&&i<MAX&&flag1)
+{if(c>='0'&&c<='9'||c>='a'&&c<='f'||c>='A'&&c<='F')
+{flag=1;
+t[i++]=c;
+}
+else if(flag)
+{t[i]='\0';
+printf("\n decimal number :%d\n",htoi(t));
+printf("continue? (Y/N):");
+c=getchar();
+if(c=='N'||c=='n')flag1=0;
+else
+    {flag=0;
+     i=0;
+     printf("\nPlease input a hexadecimal number:");
+    }
+}
+}
+}
+htoi(s)
+char s[];
+{int i,n;
+n=0;
+for(i=0;s[i]!='\0';i++)
+{if(s[i]>='0'&&s[i]<='9')n=n*16+s[i]-'0';
+if(s[i]>='a'&&s[i]<='f')n=n*16+s[i]-'a'+10;
+if(s[i]>='A'&&s[i]<='F')n=n*16+s[i]-'A'+10;
+}
+return(n);
+这道编程表面上看起来没什么，实际有一些玄妙：
+第一次运行：Please input a hexadecimal number:
+输入：12 回车
+decimal number :18
+continue? (Y/N):y
+Please input a hexadecimal number:
+这时如果输入：AC空格 回车
+会出现这样的结果：
+decimal number:172
+continue? (Y/N):
+Please input a hexadecimal number:
+也就是直接跳过continue? (Y/N):的条件判断了，这不得不让人很是奇怪，怎么会不让我输入“Y”或“N”来判断呢？那么我上面输入：12 回车，怎么就需要判断了呢？
+      其实这个问题也和上面的类似，问题的关键还是因为getchar(gets)函数对于回车及空格的不同处理，上文提到，对于回车的处理其实是在缓冲区进行的，也就是在内存中实际上没有回车这样一个字符。但是空格则不尽其然，空格是作为一个字符存储在内存区域中的，那么你输入AC+空格后，getchar函数已经得到了空格，并且这个空格在随后的语句中没有得到处理，不同于AC已经在if语句中被处理t[i++]=c;那么在continue? (Y/N):这个条件判断中，内存中还保留有空格，所以不进行输入（Y/N）判断而直接继续后面的语句。
+      同样你输入ACZ这样的字符串也不会进行判断，这时内存中存储的是Z，这里以回车和空格举例只是为了说明两者之间的区别。

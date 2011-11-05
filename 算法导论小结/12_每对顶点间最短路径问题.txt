@@ -1,0 +1,124 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:23:04+08:00
+
+====== 12 每对顶点间最短路径问题 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-7-30
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《算法导论》(第2版)》第25章。
+2.          主要介绍了两种求解每对顶点间最短路径问题的算法：Floyd-Warshall算法和Johnson算法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+在单源最短路径问题中， Dijkstra算法以贪心算法的形式利用了最短路径的最优子结构。在这里，将以动态规划的形式求解每对顶点间的最短路径。首先，推导一种最优子结构的递归解。设lij(m)是从顶点i到顶点j的至多包含m条边的任何路径的权值最小值。当m=0时，从i到j存在一条不包含边的最短路径当且仅当i=j，因此，当i=j时，lij(0) =0；当i≠j时，lij(0) =∞。对m≥1，先计算lij(m-1)，即从i到j的最短路径的权至多包含m-1条边，以及从i到j的至多包含m条边的路径的最小值，后者是通过计算j的所有可能前趋k而得到的，然后取二者中的最小值作为lij(m)。因此，递归定义lij(m)=min1≤k≤n{ lij(m-1)+wkj}。如果图中不包含负权回路，那么从i到j的最短路径至多包含n-1条边，L(n-1) 即为最终的解。而L(1) 为图的邻接矩阵W。这样，通过四重循环（2..n-1; k=1..n; i=1..n; j=1..n）就能够自底向上地计算L(2)，L(3)，…，L(n-1)。这种算法的运行时间为Θ(n4)，n=|V|。
+算法
+Floyd-Warshall 
+Floyd-Warshall算法的运行时间为Θ(V3)，它同样允许存在负权边，但假设不存在负权回路。该算法考虑的最优子结构与上述描述类似，即最短路径的子路径是最短路径。但是，它对中间路径的范围加以限制，使其增长与最短路径的最大边数的增长同步。令dij(k)=为从顶点i到顶点j、且满足所有中间顶点属于集合{1,2,…,k}的一条最短路径的权值，定义递归解：如果k=0，dij(k)=wij；如果k≥1，dij(k)=min{ dij(k-1), dik(k-1)+ dkj(k-1)}。可以想象，当k=1时，i到j的最短路径或者由边(i,j)构成，或者由边(i,1)、(1,j)构成。当k=2时，i到j的最短路径可能由子路径i到2和子路径2到j构成，而子路径2到j又可能由边(2,1)、(1,j)构成，即k=2的解包含了k=1的解。以此类推，当k=n时，即可得到每对顶点间最短路径的权值。
+为了构造最短路径，定义πij(k)为从i出发的一条最短路径上顶点j的前趋，而这条路径上的中间顶点属于集合{1,2,…,k}。定义πij(k)的递归公式，对于k=0，如果i=j或wij=∞，πij(0) =NIT(-1)；如果i≠j和wij<∞，πij(0) =i。对于k≥1，如果dij(k-1)≤dik(k-1)+ dkj(k-1)，πij(k) =πij(k-1)；如果dij(k-1)>dik(k-1)+ dkj(k-1)，πij(k) =πkj(k-1)。
+void floyd_warshall(adjacency_matrix *graphic)
+{
+    int i, j, k;
+    int **temp_distance=NULL;
+   
+    temp_distance = malloc(sizeof(int *)*graphic->vertex_number);
+    for(i=0; i<graphic->vertex_number; i++)
+          temp_distance[i] = malloc(sizeof(int)*graphic->vertex_number);
+ 
+    for(i=0; i<graphic->vertex_number; i++)
+    {
+          for(j=0; j<graphic->vertex_number; j++)
+          {
+              temp_distance[i][j] = graphic->weight[i][j];
+              graphic->distance[i][j] = graphic->weight[i][j];
+              if(i==j || graphic->weight[i][j]==INF)
+                  graphic->ancestor[i][j] = -1;
+              else
+                  graphic->ancestor[i][j] = i;
+          }
+    }
+ 
+    for(k=0; k<graphic->vertex_number; k++)
+    {
+          for(i=0; i<graphic->vertex_number; i++)
+          {
+              for(j=0; j<graphic->vertex_number; j++)
+              {
+                  if(graphic->distance[i][j]
+                       > temp_distance[i][k]+temp_distance[k][j])
+                  {
+                       graphic->distance[i][j]
+                            = temp_distance[i][k]+temp_distance[k][j];
+                       graphic->ancestor[i][j] = graphic->ancestor[k][j];
+                  }
+               }
+          }
+ 
+          for(i=0; i<graphic->vertex_number; i++)
+              for(j=0; j<graphic->vertex_number; j++)
+                  temp_distance[i][j] = graphic->distance[i][j];
+    }
+}
+
+Johnson
+算法
+Johnson算法把图G的每个顶点轮流作为源点调用Dijkstra算法。由于Dijkstra算法不允许存在负权边，因此需要对图G进行重赋权，使得对于所有的边(u, v)，新的权w’(u, v)是非负的。同时，要求对所有顶点对u, v∈V，路径p是利用加权函数w从u到v的一条最短路径，当且仅当p也是利用加权函数w’从u到v的一条最短路径。
+         给定一个带权有向图G=(V, E)，加权函数为w: E->R，据此构造一个新图G’=(V’, E’)，其中对某个新顶点s不属于V，V’=VU{s}，E’=EU{(s, v) :v∈V}。扩展加权函数w，使得对所有v∈V，有w(s,v)=0。假设G和G’不含负权回路，定义对所有v∈V’，h(v)=δ(s, v)，它可由Bellman-Ford算法求得。根据三角不等式有h(v)≤h(u)+w(u,v)，因此，定义w’(u, v)=w(u, v)+h(u)-h(v)≥0，满足上述条件。由于调用了Bellman-Ford算法，Johnson算法或者报告输入图中存在一条负权回路，或者返回|V|*|V|的矩阵D=dij，其中dij=δ(i, j)。
+int johnson(adjlist *graphic)
+{
+    int i, j, result;
+    adjlist *g;
+    lnode *temp_lnode=NULL;
+ 
+    g = malloc(sizeof(adjlist));
+    new_graphic(g, graphic->vertex_number+1);
+    copy_graphic(graphic, g);
+    for(i=0; i<g->vertex_number-1; i++)
+          insert_edge(g, g->vertex_number-1, i, 0);
+ 
+    if(bellman_ford(g, g->vertex_number-1))
+    {
+          for(i=0; i<g->vertex_number; i++)
+              g->h[i] = g->distance[i];
+ 
+          for(i=0; i<g->vertex_number; i++)
+          {
+              temp_lnode = g->vlist[i].link;
+              while(temp_lnode != NULL)
+              {
+                  temp_lnode->weight =
+                       temp_lnode->weight + g->h[i] - g->h[temp_lnode->index];
+                  temp_lnode = temp_lnode->next;
+              }
+          }
+ 
+          for(i=0; i<graphic->vertex_number; i++)
+          {
+              dijkstra(g, i);
+              for(j=0; j<graphic->vertex_number; j++)
+              {
+                  graphic->distance_uv[i][j]
+ = g->distance[j] + g->h[j] - g->h[i];
+                  graphic->ancestor_uv[i][j] = g->ancestor[j];
+              }
+          }
+ 
+          result = 1;
+    }
+    else
+    {
+          /*A negative-weight cycle exists!*/
+          result = 0;
+    }
+    free_graphic(g);
+    free(g);
+ 
+    return result;
+}
+ 

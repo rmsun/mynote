@@ -1,0 +1,55 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:55:09+08:00
+
+====== 11 定时器 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-16
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第10章。
+2.          总结了alarm定时器的用法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+定时器
+使用alarm函数可以设置一个定时器，在将来某个指定的时间该定时器会超时。其seconds参数的值是秒数，经过了指定的秒数后会产生SIGALRM信号。如果不忽略或不捕捉此信号，则其默认动作是终止调用该alarm函数的进程。
+#include <unistd.h>
+unsigned int alarm(unsigned int seconds);
+         每个进程只能有一个定时器。如果在调用alarm时，以前已为该进程设置过定时器，而且它还没有超时，则将该定时器的余留值作为本次alarm函数调用的值返回。以前登记的定时器时间则被新值代替。如果有以前为进程登记的尚未超时的定时器，而且本次调用的seconds值为0，则取消以前的定时器，其余留时间仍作为alarm函数的返回值。使用alarm和pause函数，进程可使自己休眠一段指定的时间，类似sleep。
+         alarm函数的一个常用功能是对可能阻塞的操作设置时间上限值。范例如下：
+#include "apue.h"
+#include <setjmp.h>
+ 
+static void       sig_alrm(int);
+static jmp_buf    env_alrm;
+ 
+int main(void)
+{
+    int     n;
+    char    line[MAXLINE];
+ 
+    if (signal(SIGALRM, sig_alrm) == SIG_ERR)
+        err_sys("signal(SIGALRM) error");
+    if (setjmp(env_alrm) != 0)   
+        err_quit("read timeout"); /*longjmp后退出，不再read*/
+ 
+    alarm(10);  /*alarm到期时，可能还未开始read，如果没有longjmp，read可能长期阻塞*/
+    if ((n = read(STDIN_FILENO, line, MAXLINE)) < 0)
+        err_sys("read error");
+    alarm(0);   /*如果alarm到期前输入完成，则执行这里，取消定时器*/
+ 
+    write(STDOUT_FILENO, line, n);
+    exit(0);
+}
+ 
+static void
+sig_alrm(int signo)
+{
+    longjmp(env_alrm, 1);
+}

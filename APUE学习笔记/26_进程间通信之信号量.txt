@@ -1,0 +1,90 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:00:37+08:00
+
+====== 26 进程间通信之信号量 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-30
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第15章。
+2.          总结了进程间通信的一种机制——信号量的基本概念和使用方法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+信号量
+信号量（semaphore）是一个计数器，用于多进程对共享数据对象的访问。为了获得共享资源，进程需要1）测试控制该资源的信号量；2）若此信号量的值为正，则进程可以使用该资源。进程将信号量减1，表示它使用了一个资源单位；3）若此信号量的值为0，则进程进入休眠状态，直至信号量值大于0，进程被唤醒后，返回第1）步。当进程不再使用由一个信号量控制的共享资源时，该信号量增1。如果有进程正在休眠等待此信号量，则唤醒它们。常用的信号量形式被称为二元信号量，它控制单个资源，初始值为1。
+
+创建信号量
+
+ 
+
+XSI使用信号量集，即含有一个或多个信号量的集合，而非单个信号量。内核为每个信号量集设置一个semid_ds结构，类似于消息队列，它包含ipc_perm结构，用以规定信号量的权限和所有者。每个信号量则由一个无名结构表示。
+struct semid_ds {
+     struct ipc_perm  sem_perm;  /* see Section 15.6.2 */
+     unsigned short   sem_nsems; /* # of semaphores in set */
+     time_t           sem_otime; /* last-semop() time */
+     time_t           sem_ctime; /* last-change time */
+     .
+};
+ 
+struct {
+     unsigned short  semval;   /* semaphore value, always >= 0 */
+     pid_t           sempid;   /* pid for last operation */
+     unsigned short  semncnt;  /* # processes awaiting semval>curval */
+     unsigned short  semzcnt;  /* # processes awaiting semval==0 */
+     .
+};
+         要创建新的信号量集或者引用一个现存信号量集，需要调用semget函数。创建方法与消息队列一样，或者key是IPC_PRIVATE，或者key当前未与信号量相结合且flag中指定了IPC_CREAT位。新信号量集的访问权限根据flag中的访问权限位设置。nsems参数是该集合中的信号量数。如果是创建新集合，则必须指定nsems，如果引用一个现存的集合，则将nsems指定为0。一个缺点是，创建信号量集（semget）与对其赋初值（semctl）是分开的。
+#include <sys/sem.h>
+int semget(key_t key, int nsems, int flag);
+Returns: semaphore ID if OK, -1 on error
+         若执行成功，semget函数将返回信号量集ID，用于其它操作。
+
+操作信号量集
+semctl函数包含了多种信号量操作。
+#include <sys/sem.h>
+int semctl(int semid, int semnum, int  cmd, ... /* union semun arg */);
+ 
+union semun {
+     int              val;    /* for SETVAL */
+     struct semid_ds *buf;    /* for IPC_STAT and IPC_SET */
+     unsigned short  *array;  /* for GETALL and SETALL */
+};
+依赖于所请求的命令，第四个参数是可选的，如果使用该参数，则其类型为semun，它是多个特定命令参数的联合。cmd参数指定下列10中命令中的一种，在semid指定的信号量集上执行此命令。其中有5条命令是针对一个特定的信号量，它们用semnum指定该信号量集中的一个信号量成员，semnum值在0和nsems-1之间。
+l          IPC_STAT，获取信号量集的semid_ds结构，并存放在由arg.buf指向的结构中。
+l          IPC_SET，按由arg.buf执行结构中的值设置与此信号量集相关的三个字段：sem_perm.uid、sem_perm.gid和sem_perm.mode。调用进程必须具有超级用户权限，或者其有效用户ID等于sem_perm.cuid或sem_perm.uid。
+l          IPC_RMID，从系统中删除该信号量集，这种删除立即发生。仍在使用此信号量集的其它进程在下一次操作信号量集时，将出错返回-1，errno设置为EIDRM。调用进程必须具有超级用户权限，或者其有效用户ID等于sem_perm.cuid或sem_perm.uid。
+l          GETVAL，返回成员semnum的semval值。
+l          SETVAL，设置成员semnum的semval值，该值由arg.val指定。
+l          GETPID，返回成员semnum的sempid值。
+l          GETNCNT，返回成员semnum的semncnt值。
+l          GETZCNT，返回成员semnum的semzcnt值。
+l          GETALL，取该信号量集中所有信号量的值，并将它们存放在由arg.array指向的数组中。
+l          SETALL，按arg.array指向的数组中的值，设置该信号量集中所有信号量的值，用以初始化信号量集。
+对于除GETALL以外的所有GET命令，semctl函数都返回相应的值，其它命令则返回0。
+
+获取和释放信号量
+获取和释放信号量通过semop函数完成，它是一个原子操作。
+#include <sys/sem.h>
+int semop(int semid, struct sembuf semoparray[], size_t nops);
+Returns: 0 if OK, -1 on error
+struct sembuf {
+   unsigned short  sem_num;  /* member # in set (0, 1, ..., nsems-1) */
+   short           sem_op;   /* operation (negative, 0, or positive) */
+   short           sem_flg;  /* IPC_NOWAIT, SEM_UNDO */
+};
+         其中，参数semoparray是一个指针，它指向一个信号量操作数组，信号量操作由sembuf结构表示。参数nops规定该操作数组的元素个数。对信号量集中成员sem_num的操作由相应的sem_op值规定：
+l          sem_op为正，这对应于进程要释放的资源数，sem_op值将加到信号量的值上。
+l          sem_op为负，表示进程要获取由该信号量控制的资源。如果信号量的值大于或等于sem_op的绝对值，则从信号量值中减去sem_op的绝对值。如果信号量值小于sem_op的绝对值，即资源不能满足要求，则
+²         若指定了IPC_NOWAIT，则semop出错返回-1，errno设置为EAGAIN。
+²         若未指定IPC_NOWAIT，则该信号量的semncnt值加1，调用进程进入休眠状态，直到1）此信号量变成大于或等于sem_op的绝对值，这时，此信号量的semncnt值减1，并且从信号量值中减去sem_op的绝对值；2）从系统中删除此信号量，semop出错返回-1，errno设置为EIDRM；3）捕捉到一个信号并从处理函数返回，则信号量的semncnt值减1，semop出错返回-1，errno设置为EINTR。
+l          sem_op为0，表示调用进程希望等待到该信号量值变为0。如果当前信号量值是0，则semop立即返回。如果当前信号值不是0，则
+²         若指定了IPC_NOWAIT，则semop出错返回-1，errno设置为EAGAIN。
+²         若未指定IPC_NOWAIT，则该信号量的semzcnt值加1，调用进程进入休眠状态，直到1）此信号量值变为0，这时，此信号量的semncnt值减1；2）从系统中删除此信号量，semop出错返回-1，errno设置为EIDRM；3）捕捉到一个信号并从处理函数返回，则信号量的semncnt值减1，semop出错返回-1，errno设置为EINTR。
+如果希望内核在进程退出时，能够检查并释放该进程占有的信号量，需要为sem_flg字段指定SEM_UNDO标志。

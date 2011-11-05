@@ -1,0 +1,92 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:59:23+08:00
+
+====== 22 存储映射IO ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-26
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第14章。
+2.          总结了存储映射IO的基本概念和使用方法、。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+存储映射
+I/O
+存储映射I/O（Memory-mapped I/O）使一个磁盘文件与存储空间中的一个缓冲区相映射。于是当在缓冲区中存取数据，就相当于读写文件中的相应字节。这样就可以在不使用read和write的情况下执行I/O。
+         首先，需要告诉内核将一个给定的文件映射到一个存储区域中。这由mmap函数完成。
+#include <sys/mman.h>
+void *mmap(void *addr, size_t len, int prot, int flag, int filedes, off_t off );
+Returns: starting address of mapped region if OK, MAP_FAILED on error
+l          addr参数指定映射存储区的起始地址。通常将其设置为0，表示由系统选择映射区的起始地址。mmap的返回地址是该映射区的起始地址。
+l          filedes指定要被映射文件的描述符。在映射该文件到一个地址空间之前，先要打开该文件。
+l          len是映射的字节数。
+l          off是要映射字节在文件中的起始偏移量。
+l          prot参数说明对映射区域的保护要求，可以是PROT_READ、PROT_WRITE、PROT_EXEC或PROT_NONE。对指定映射存储区的保护要求不能超过文件open模式访问权限。
+l          flag参数影响映射存储区的多种属性，取值可以是：1）MAP_FIXED，表示返回值必须等于addr，这不利于可移植性；2）MAP_SHARED，指示存储操作修改映射文件；3）MAP_PRIVATE，说明对映射区的存储操作导致创建该映射文件的一个私有副本。
+此外，需要记住以下几点：
+l          off和addr的值（如果指定了MAP_FIXED）通常应当是系统虚存页长度的倍数。虚存页长度可用带参数_SC_PAGESIZE或_SC_PAGE_SIZE的sysconf函数得到。
+l          不能用mapp将数据添加到文件中。为了做到这一点，必须首先加长该文件。
+l          与映射区相关的有SIGSEGV和SIGBUS两个信号。信号SIGSEGV通常用于指示进程试图访问对它不可用的存储区。如果访问映射区的某个部分，而在访问时这一部分实际上已不存在，则产生SIGBUS信号。
+l          由于子进程复制父进程的地址空间，而存储映射区是该地址空间的一部分，因此，在调用fork之后，子进程继承存储映射区。由于同样的理由，调用exec后的新程序则不继承此存储映射区。
+
+其它接口
+ 
+调用mprotect可以更改一个现存映射存储区的权限。prot的许可值与mmap中prot参数一样，地址参数addr的值必须是系统页长的整数倍。
+#include <sys/mman.h>
+int mprotect(void *addr, size_t len, int prot);
+Returns: 0 if OK, -1 on error
+如果在共享存储映射区中的页已经修改，那么可以调用msync将该页冲洗到被映射的文件中，其作用类似于fsync。如果映射是私有的，那么不修改被映射的文件。addr同样必须与页边界对齐。flags参数一定要指定MS_ASYNC和MS_SYNC中的一个。如果希望在函数返回之前等待写操作完成，则可指定MS_SYNC标志。MS_INVALIDATE是一个可选标志，使用它可以通知操作系统丢弃与底层存储器没有同步的任何页。
+#include <sys/mman.h>
+int msync(void *addr, size_t len, int flags);
+Returns: 0 if OK, -1 on error
+进程终止时，或调用了munmap后，存储映射区就被自动解除映射。关闭文件描述符filedes并不解除映射区。调用munmap不会使映射区的内容写到磁盘文件上。对于MAP_SHARED区磁盘文件的更新，在写到存储映射区时按内核虚存算法自动进行。在解除了映射后，对于MAP_PRIVATE存储区的修改被丢弃。
+#include <sys/mman.h>
+int munmap(caddr_t addr, size_t len);
+Returns: 0 if OK, -1 on error
+     范例程序如下：使用存储映射I/O复制一个文件。
+#include "apue.h"
+#include <fcntl.h>
+#include <sys/mman.h>
+ 
+int main(int argc, char *argv[])
+{
+    int         fdin, fdout;
+    void        *src, *dst;
+    struct stat statbuf;
+ 
+    if (argc != 3)
+        err_quit("usage: %s <fromfile> <tofile>", argv[0]);
+ 
+    if ((fdin = open(argv[1], O_RDONLY)) < 0)
+        err_sys("can't open %s for reading", argv[1]);
+ 
+    if ((fdout = open(argv[2], O_RDWR | O_CREAT | O_TRUNC, FILE_MODE)) < 0)
+        err_sys("can't creat %s for writing", argv[2]);
+ 
+    if (fstat(fdin, &statbuf) < 0)   /* need size of input file */
+        err_sys("fstat error");
+ 
+    /* 不能用mmap加长文件，必须首先设置文件大小 */
+    if (lseek(fdout, statbuf.st_size - 1, SEEK_SET) == -1)
+        err_sys("lseek error");
+    if (write(fdout, "", 1) != 1)
+        err_sys("write error");
+ 
+    if ((src = mmap(0, statbuf.st_size, PROT_READ, MAP_SHARED,
+      fdin, 0)) == MAP_FAILED)
+        err_sys("mmap error for input");
+ 
+    if ((dst = mmap(0, statbuf.st_size, PROT_READ | PROT_WRITE,
+      MAP_SHARED, fdout, 0)) == MAP_FAILED)
+        err_sys("mmap error for output");
+ 
+    memcpy(dst, src, statbuf.st_size); /* does the file copy */
+    exit(0);
+}

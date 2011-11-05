@@ -1,0 +1,117 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:52:31+08:00
+
+====== 3 时间概念 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-12
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第1、6、8章。
+2.          总结了UNIX系统下的两种时间概念。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+UNIX
+ 
+系统一直使用两种不同的时间概念：日历时间和进程时间。
+日历时间
+保存日历时间的数据类型有三种：
+l          time_t：记录自国际标准时间公元1970年1月1日00:00:00以来经历的秒数。通过time函数返回。文件属性中的最后访问时间，最后修改时间和最后文件属性更改时间，都使用该类型记录。
+#include <time.h>
+time_t time(time_t *calptr);
+l          timeval：通过gettimeofday函数返回，除了记录time_t类型的秒数外，提供long类型的微秒计数。
+#include <sys/time.h>
+struct timeval {
+     time_t tv_sec;    /* seconds */
+     long   tv_usec;   /* microseconds */
+};
+int gettimeofday(struct timeval *restrict tp, void *restrict tzp);
+l          tm：该结构将日历时间以年，月，日，时，分，秒，周日的形式表示。
+struct tm {        /* a broken-down time */
+     int  tm_sec;     /* seconds after the minute: [0 - 60] */
+         int  tm_min;     /* minutes after the hour: [0 - 59] */
+         int  tm_hour;    /* hours after midnight: [0 - 23] */
+         int  tm_mday;    /* day of the month: [1 - 31] */
+         int  tm_mon;     /* months since January: [0 - 11] */
+         int  tm_year;    /* years since 1900 */
+         int  tm_wday;    /* days since Sunday: [0 - 6] */
+         int  tm_yday;    /* days since January 1: [0 - 365] */
+         int  tm_isdst;   /* daylight saving time flag: <0, 0, >0 */
+};
+在time_t,tm和字符串之间相互转换的办法有：
+l          time_t->tm：使用localtime和gmtime函数，前者将日历时间转换为本地时间（考虑本地时区和夏时制标志），后者则将日历时间转换成国际标准时间的年，月，日，时，分，秒，周日。
+#include <time.h>
+struct tm *gmtime(const time_t *calptr);
+struct tm *localtime(const time_t *calptr);
+l          tm->time_t，使用mktime函数，以本地时间的年月日等作为参数。
+#include <time.h>
+time_t mktime(struct tm *tmptr);struct tm *localtime(const time_t *calptr);
+l          tm，time_t->字符串：使用asctime和ctime函数，产生26字节的字符串，与date命令的输出形式类似。或者使用复杂如printf的strftime函数。
+#include <time.h>
+char *asctime(const struct tm *tmptr);
+char *ctime(const time_t *calptr);
+size_t strftime(char *restrict buf, size_t maxsize,
+                const char *restrict format,
+                const struct tm *restrict tmptr);
+
+进程时间
+以clock_t类型存储，也称为CPU时间，用以度量进程使用的中央处理器资源，以时钟滴答计算（每秒钟滴答数可通过sysconf(_SC_CLK_TCK)查询）。当度量一个进程的执行时间时，UNIX系统使用三个进程时间值（可执行time命令获得）：
+l          时钟时间，又称为墙上时钟时间。它是进程运行的时间总量，其值与系统中同时运行的进程数有关。
+l          用户CPU时间，是执行用户指令所用的时间。
+l          系统CPU时间，是为该进程执行内核程序所经历的时间。
+任一进程及其已终止子进程（父进程wait到的子进程）的用户和系统CPU时间可调用times函数获得，保存在tms结构中。函数返回值为墙上时钟时间。它们都是相对于过去的某一时刻测量的，因此不能使用绝对值，而必须使用相对值。
+两种时间概念的使用范例如下：
+#include <time.h>
+#include <sys/time.h>
+#include <sys/times.h>
+#include <stdio.h>
+#include <unistd.h>
+ 
+int main()
+{
+     time_t tt;
+     struct timeval tval;
+     struct tm *ltm, *gtm;
+     long clktck;
+     clock_t start, end;
+     struct tms tmsstart, tmsend;
+ 
+     start = times(&tmsstart);
+     tt = time(NULL);
+     printf("time_t(%d bytes): %d(sec)/n", sizeof(tt), (int)tt);
+     gettimeofday(&tval, NULL);
+     printf("timeval: %d(sec), %d(micsec)/n", (int)tval.tv_sec, (int)tval.tv_usec);
+     ltm = localtime(&tt);
+     printf("local time: %s", asctime(ltm));
+     gtm = gmtime(&tt);
+     printf("std time: %s", asctime(gtm));
+     clktck = sysconf(_SC_CLK_TCK);
+     printf("_SC_CLK_TCK: %ld/n", clktck);
+     sleep(1);
+     end = times(&tmsend);
+     printf("total: %f(sec)/n", (end-start)/(double)clktck);
+     printf("user: %f(sec)/n", (tmsend.tms_utime-tmsstart.tms_utime)/(double)clktck);
+     printf("sys: %f(sec)/n", (tmsend.tms_stime-tmsstart.tms_stime)/(double)clktck);
+ 
+     exit(0);
+}
+运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ time ./a.out
+time_t(4 bytes): 1249594897(sec)
+timeval: 1249594897(sec), 828079(micsec)
+local time: Fri Aug  7 05:41:37 2009
+std time: Thu Aug  6 21:41:37 2009
+_SC_CLK_TCK: 100
+total: 1.000000(sec)
+user: 0.000000(sec)
+sys: 0.000000(sec)
+ 
+real 0m1.002s
+user 0m0.000s
+sys  0m0.000s

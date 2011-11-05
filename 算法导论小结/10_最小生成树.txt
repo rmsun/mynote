@@ -1,0 +1,209 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:22:32+08:00
+
+====== 10 最小生成树 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-7-28
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《算法导论》(第2版)》第23章。
+2.          主要介绍了两种构建最小生成树的方法：Kruskal算法和Prim算法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+Kruskal
+ 
+算法和Prim算法，可以以邻接表表示的图为基础（可参考《图的表示与搜索》），并且都利用了贪心算法的思想。假设最小生成树（MST，minimum spanning tree）问题针对的是无向连通加权图G=(V, E)，那么MST中边的个数为|V|-1。
+Kruskal算法
+首先定义几个概念。无向图G=(V, E)的一个割(S, V-S)是对V的一个划分。当一条边(u, v)∈E的一个端点属于S，而另一个端点属于V-S时，称边(u, v)通过割(S, V-S)。如果一个边的集合A中没有边通过某一割，则说该割不妨碍边集A。如果某条边的权值是通过一个割的所有边中最小的，则称该边为通过这个割的一条轻边。
+         Kruskal算法首先选择权值最小的一条边，并将它的两个端点划入S，表示最小生成树的一个子集。然后，选择通过割(S, V-S)的一条轻边，将属于V-S的端点划入S。重复上述过程，直到集合V-S为空。所有被选择的边即为最小生成树的边。
+void mst_kruskal(adjlist *graphic)
+{
+    int i, j;
+    dobj *vtx_set=NULL;
+ 
+    vtx_set = malloc(sizeof(dobj)*graphic->vertex_number);
+    for(i=0; i<graphic->vertex_number; i++)
+                  make_set(&vtx_set[i]);
+    quick_sort(graphic->elist, 0, graphic->edge_number-1);
+    j = 0;
+    for(i=0; i<graphic->edge_number; i++)
+    {
+                  if(find_set(&vtx_set[graphic->elist[i].i])
+                         != find_set(&vtx_set[graphic->elist[i].j]))
+                  {
+                        graphic->mst[j].i = graphic->elist[i].i;
+                        graphic->mst[j].j = graphic->elist[i].j;
+                        graphic->mst[j].weight = graphic->elist[i].weight;
+                        j++;
+                        union_set(&vtx_set[graphic->elist[i].i],
+                                &vtx_set[graphic->elist[i].j]);
+                  }
+    }
+    graphic->mst_size = j;
+}
+其中，make_set运行时间为O(1)，对各条边按权值进行的快速排序需要O(E lg E)，执行O(E)次find_set和union_set操作所需的总时间为O(E lg E)。因此，Kruskal算法的总运行时间为O(E lg E)。
+         这里，用到了不相交集合上的操作（第21章）。其中，make_set(x)建立一个新的集合，其唯一成员为x。union_set(x, y)将包含x和y的动态集合合并为一个新的集合。find_set(x)返回一个指针，指向包含x的集合的代表。在不相交集合的一种实现中，用有根树表示集合。每个结点仅指向其父结点。每棵树的根作为集合的代表，并且是它自己的父结点。为改进运行时间，可采用两种启发式策略：一是按秩合并，其思想是把包含较少结点的树的根指向包含较多结点的树的根；二是路径压缩，使查找路径上的每个结点都直接指向根结点，但不改变结点的秩。为执行路径压缩，find_set是一种两趟方法：一趟是沿查找路径上升，直到找到根；一趟是沿查找路径下降，以便更新每个结点，使之直接指向根。
+void make_set(dobj *obj)
+{
+    obj->parent = obj;
+    obj->rank = 0;
+}
+ 
+void union_set(dobj *x, dobj *y)
+{
+    link_set(find_set(x), find_set(y));
+}
+ 
+void link_set(dobj *x, dobj *y)
+{
+    if(x->rank > y->rank)
+    {
+                  y->parent = x;
+    }
+    else
+    {
+                  x->parent = y;
+                  if(x->rank == y->rank)
+                        y->rank++;
+    }
+}
+ 
+dobj * find_set(dobj *x)
+{
+    if(x != x->parent)
+                  x->parent = find_set(x->parent);
+ 
+    return x->parent;
+}
+
+Prim
+ 
+算法
+Prim算法的特点是最小生成树子集A中的边总是形成单棵树。树从任意根顶点开始形成，并逐渐生成，直至该树覆盖了V中的所有顶点。在每一步，总是在以A中顶点为一个端点的所有边中，选择一条轻边加入到树中。在算法的执行过程中，不在树中的所有顶点都放在一个基于边权重的最小优先队列中（可参考《堆的使用》）。
+void mst_prim(adjlist *graphic, int start)
+{
+    int i, j;
+    heap h;
+    lnode *temp_lnode=NULL;
+    vhnode *temp_vhnode=NULL;
+ 
+    init_heap(&h, graphic->vertex_number);
+    for(i=0; i<graphic->vertex_number; i++)
+    {
+                  h.array[i].index = i;
+                  h.array[i].key = MAX_VALUE;
+                  h.array[i].ancestor = -1;
+                   graphic->vlist[i].color = WHITE;
+    }
+    h.array[start].key = 0;
+    build_min_heap(&h);
+ 
+    graphic->mst_size = 0;
+    while(h.heap_size>0)
+    {
+                  temp_vhnode = heap_extract_min(&h);
+                   graphic->vlist[temp_vhnode->index].color = BLACK;
+                  if(temp_vhnode->ancestor != -1)
+                  {
+                        graphic->mst[graphic->mst_size].i = temp_vhnode->ancestor;
+                        graphic->mst[graphic->mst_size].j = temp_vhnode->index;
+                        graphic->mst[graphic->mst_size].weight = temp_vhnode->key;
+                        graphic->mst_size++;
+                  }
+ 
+                  temp_lnode = graphic->vlist[temp_vhnode->index].link;
+                  while(temp_lnode != NULL)
+                  {
+              j = heap_search(&h, temp_lnode->index);
+                        if(graphic->vlist[temp_lnode->index].color==WHITE
+&& temp_lnode->weight<h.array[j].key)
+                        {
+                                      h.array[j].ancestor = temp_vhnode->index;
+                                      heap_decrease_key(&h, j, temp_lnode->weight);
+                        }
+                        temp_lnode = temp_lnode->next;
+                  }
+    }
+     free_heap(&h);
+}
+         这里，暂且用color域标识顶点是否在优先队列中。Prim算法的性能取决于优先队列如何实现。如果用最小堆来实现，那么while循环中，执行|V|次的heap_extract_min操作需要O(V lg V)时间。另外，需要检查O(E)条边，而对边进行heap_decrease_key操作需要O(lg V)时间。因此，Prim算法的整个运行时间为O(V lg V+ E lg V)=O(E lg V)。
+         附最小堆实现的最小优先队列。
+typedef struct vertex_heap_node
+{
+    int index;
+    int key;
+    int ancestor;
+} vhnode;
+ 
+typedef struct heap_array
+{
+    int array_size;
+    int heap_size;
+    vhnode *array;
+} heap;
+ 
+int parent(int i)；
+int left(int i)；
+int right(int i)；
+void exchange(vhnode *a, vhnode *b);
+void init_heap(heap *h, int vertex_number);
+void free_heap(heap *h);
+ 
+void min_heapify(heap *h, int i)
+{
+    int l, r, min;
+ 
+    l = left(i);
+    r = right(i);
+    if(l<h->heap_size && h->array[l].key<h->array[i].key)
+                  min = l;
+    else
+                  min = i;
+    if(r<h->heap_size && h->array[r].key<h->array[min].key)
+                  min = r;
+    if(min != i)
+    {
+                  exchange(&h->array[i], &h->array[min]);
+                  min_heapify(h, min);
+    }
+}
+ 
+void build_min_heap(heap *h)
+{
+    int i;
+   
+    h->heap_size = h->array_size;
+    for(i=h->heap_size/2-1; i>=0; i--)
+                  min_heapify(h, i);
+}
+ 
+vhnode * heap_extract_min(heap *h)
+{
+    vhnode *min_node=NULL;
+ 
+    exchange(&h->array[h->heap_size-1], &h->array[0]);
+    min_node = &h->array[h->heap_size-1];
+    h->heap_size--;
+    min_heapify(h, 0);
+    return min_node;
+}
+ 
+void heap_decrease_key(heap *h, int i, int key)
+{
+    int j;
+ 
+    j = i;
+    h->array[i].key = key;
+    while(j>0 && h->array[parent(j)].key>h->array[j].key)
+    {
+                  exchange(&h->array[j], &h->array[parent(j)]);
+                  j = parent(j);
+    }
+}

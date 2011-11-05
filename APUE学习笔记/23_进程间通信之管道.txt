@@ -1,0 +1,88 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:59:40+08:00
+
+====== 23 进程间通信之管道 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-29
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第15章。
+2.          总结了进程间通信的一种机制——管道的基本概念和使用方法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+管道
+管道是UNIX系统IPC的最古老形式，在shell下的表现形式为管道线。每当在管道线中输入一个由shell执行的命令序列时，shell为每一条命令单独创建一进程，然后将前一条命令进程的标准输出用管道与后一条命令的标准输入相连接。管道有两个主要局限：
+l          管道是半双工的，即数据只能在一个方向上流动。
+l          管道只能在具有公共祖先的进程之间使用。
+
+管道的创建
+管道由pipe函数创建。经由参数filedes返回两个文件描述符：filedes[0]为读而打开，filedes[1]为写而打开（读0写1）。filedes[1]的输出是filedes[0]的输入。fstat函数对管道的每一端都返回一个FIFO类型的文件描述符，可以用S_ISFIFO宏来测试管道。
+#include <unistd.h>
+int pipe(int filedes[2]);
+Returns: 0 if OK, -1 on error
+单个进程中的管道几乎没有任何用处。通常，调用pipe函数的进程接着调用fork，这样就创建了从父进程到子进程（或反向）的IPC通道。对于从父进程到子进程的管道，父进程关闭管道的读端，子进程则关闭写端。对于反向的管道，父进程关闭写端，子进程则关闭读端。
+
+读写管道
+可以直接调用read和write对管道描述符进行读写。更常见的方法是将管道描述符复制为标准输入和标准输出。在此之后，子进程通常执行另一个程序，该程序或者从标准输入（管道的读端）读数据，或者将数据写到其标准输出（管道的写端）。
+         在写管道时，常量PIPE_BUF规定了内核中管道缓冲区的大小。如果有多个进程同时写一个管道，而且有进程要求写的字节数超过PIPE_BUF字节数时，则写操作的数据可能互相穿插。用pathconf或fpathconf函数可以确定PIPE_BUF的值。
+         当管道的一端被关闭后，下列的两条规则起作用：
+l          当读一个写端已被关闭的管道时，在所有数据都被读取后，read返回0，以指示达到了文件结尾处。
+l          如果写一个读端已被关闭的管道，则产生信号SIGPIPE。如果忽略该信号或者捕捉该信号并从其信号处理函数返回，则write返回-1，errno设置为EPIPE。
+实验程序如下：
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <string.h>
+#include <signal.h>
+ 
+void sig_pipe(int signo)
+{
+     write(STDOUT_FILENO, "receive SIGPIPE/n", 17);
+}
+ 
+int main()
+{
+     int fd[2];
+     pid_t pid;
+     char buf[10];
+ 
+     memset(buf, 0, 10);
+     if(signal(SIGPIPE, sig_pipe) == SIG_ERR)
+       perror("signal SIGPIPE error");
+ 
+     if(pipe(fd) < 0)
+     {
+       perror("pipe error");
+       exit(EXIT_FAILURE);
+     }
+    
+     if((pid = fork()) < 0)
+     {
+       perror("fork error");
+       exit(EXIT_FAILURE);
+     }
+     else if(pid == 0)
+     {
+       close(fd[1]);
+       exit(EXIT_SUCCESS);
+     }
+     close(fd[0]);
+     sleep(1);
+     if(write(fd[1], buf, 10) == -1)
+       perror("write error");
+     exit(EXIT_SUCCESS);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+receive SIGPIPE
+write error: Broken pipe
+
+协同进程
+当一个程序产生某个过滤程序的输入，同时又读取该过滤程序的输出时，则该过滤程序就成为协同进程。协同进程通常在shell的后台运行，它有连接到另一个进程的两个单向管道，一个接到其标准输入，另一个则来自其标准输出。

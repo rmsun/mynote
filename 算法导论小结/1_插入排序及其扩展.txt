@@ -1,0 +1,161 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:20:07+08:00
+
+====== 1 插入排序及其扩展 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-7-11
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《算法导论》(第2版)》第2章。
+2.          总结了插入排序和它的几种扩展，用以开拓思路，其中最有意义的扩展当属shell排序。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+插入排序
+插入排序的工作机理与很多人打牌时，整理手中牌时的做法差不多。在开始摸牌时，左手是空的，牌面朝下放在桌上。接着，一次从桌上摸起一张牌，并将它插入到左手一把牌中的正确位置上。为了找到这张牌的正确位置，要将它与手中已有的牌从右到左地进行比较。无论什么时候，左手中的牌都是排好序的。如果输入数组已经是排好序的话，插入排序出现最佳情况，其运行时间是输入规模的一个线性函数。如果输入数组是逆序排列的，将出现最坏情况。平均情况与最坏情况一样，其时间代价是Θ(n2)。
+void insertion_sort(int *array, int length)
+{
+    int i, j, key;
+ 
+    for(j=1; j<length; j++)
+    {
+                   key = array[j];
+                   i = j-1;
+                  while(i>=0 && array[i]>key)
+                  {
+                        array[i+1] = array[i];
+                        i--;
+                  }
+                  array[i+1] = key;
+    }
+}
+
+插入排序的递归版本
+书中练习2.3-4。插入排序可以如下改写成一个递归过程：为排序A[1..n]，先递归地排序A[1..n-1]，然后再将A[n]插入到已排序的数组A[1..n-1]中去。对于插入排序的这一递归版本，可以用这样一个递归式表示其运行时间：T(n)=2T(n/2)+n (如果n=2k,对于k>1)且T(n)=2 (如果n=2)，解为T(n)=Θ(n2)。
+void recursive_insertion_sort(int *array, int length)
+{
+    int i, j, key;
+ 
+    if(length > 1)
+    {
+                  recursive_insertion_sort(array, length-1);
+    }
+   
+    key = array[length-1];
+    i = length-2;
+    while(i>=0 && array[i]>key)
+    {
+                  array[i+1] = array[i];
+                  i--;
+    }
+    array[i+1] = key;
+}
+
+使用二分查找的插入排序
+在原插入排序的while循环中，采用了一种线性查找策略，在已排序的子数组A[1..j-1]中反向扫描。因此，可以设想使用运行时间为Θ(lg n)的二分查找策略，来改善查找性能。然而，二分查找策略无法避免将比新插入元素大的那些元素向后移位，该版本的时间代价仍然是Θ(n2)。
+/*
+ * 返回v应该插入的位置
+ */
+int binary_search(int *array, int v, int low, int high)
+{
+    int mid;
+ 
+    while(low < high)
+    {
+                  mid = (int)((low+high)/2);
+                  if(v > array[mid])
+                  {
+                        low = mid+1;
+                         if(v < array[low])
+                                      return low;
+                  }
+                  else
+                  {
+                        high = mid-1;
+                        if(v > array[high])
+                                      return high;
+                  }
+    }
+ 
+    return array[low]>v ? low : low+1;
+}
+ 
+void binary_insertion_sort(int *array, int length)
+{
+    int i, j, key, pos;
+ 
+    for(j=1; j<length; j++)
+    {
+                  key = array[j];
+                  pos = binary_search(array, key, 0, j-1);
+                  for(i=j; i>pos; i--)
+                  {
+                        array[i] = array[i-1];
+                  }
+                  array[pos] = key;
+    }  
+}
+
+shell
+ 
+排序
+shell排序的核心仍然使用插入排序，因为插入排序在基本有序的数组上表现极好。区别在于，shell排序在使用插入排序之前，对数组进行分组。这样，位于数组尾部的最小元素能够以大的步长(>1)、少量的比较和交换(<n)，移动到数组的首部。移动的步长逐次递减，最终归结为步长为1的常规插入排序。
+    在实现上，可以把shell排序看作：将数组分组形成表格，并对表格的列进行插入排序；每一次排序后，减少列的数目，以形成更长的列；最终，表格只含有一列，然后使用常规插入排序对这个基本有序的列进行排序。一个简单的例子如下：
+原数组
+[ 13 14 94 33 82 25 59 94 65 23 45 27 73 25 39 10 ]
+第一次分组及排序
+(可以观察到数组尾部的10迅速地移动到了数组的首部)
+13 14 94 33 82
+25 59 94 65 23
+45 27 73 25 39
+10
+ 
+ 
+ 
+10 14 73 25 23
+13 27 94 33 39
+25 59 94 65 82
+45
+第二次分组及排序
+10 14 73
+25 23 13
+27 94 33
+39 25 59
+94 65 82
+45
+…………
+ 
+10 14 13
+25 23 33
+27 25 59
+39 65 73
+45 94 82
+94
+        shell排序的运行时间分析非常复杂，不同的步长将得到不同的时间代价。这里，以表格的行长度的一半作为步长，这种选取方式虽然简单，但算法的时间代价也最大，为O(n2)。
+void shell_sort(int *array, int length)
+{
+    int i, j, inc, key;
+ 
+    inc = length/2;
+    while(inc > 0)
+    {
+                  for(j=inc; j<length; j++)
+                  {
+                        key = array[j];
+                        i = j-inc;
+                        while(i>=0 && array[i]>key)
+                        {
+                                      array[i+inc] = array[i];
+                                      i -= inc;
+                        }
+                        array[i+inc] = key;
+                  }
+                  inc = inc/2;
+    }
+}

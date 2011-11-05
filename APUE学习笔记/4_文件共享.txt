@@ -1,0 +1,98 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:52:52+08:00
+
+====== 4 文件共享 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-12
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第3章。
+2.          主要总结了UNIX系统下描述文件的三种数据结构，以及文件共享的相关概念。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+文件数据结构
+表示文件的数据结构有三个：
+l          v节点结构，包含a)文件类型b)对此文件进行各种操作的函数的指针c)文件的i节点（索引节点）。i节点包含文件的所有者，文件长度，文件所在的设备，指向文件实际数据块在磁盘上所在位置的指针等等。Linux没有使用v节点，而是使用了通用i节点结构。
+l          文件表项，内核为所有打开文件维持一张文件表，每个文件表项包含a)文件状态标志（读，写，添加，同步和非阻塞等）b)当前文件偏移量c)指向该文件v节点表项的指针。
+l          文件描述符，每个进程在进程表中都有一个记录项，记录项中包含一张打开文件描述符表，可将其视为一个矢量，每个描述符占用一项。与每个文件描述符相关联的是a)文件描述符标志（FD_CLOEXEC，表示文件描述符在通过一个exec时仍保持有效）b)指向一个文件表项的指针。
+
+文件共享
+l          共享v节点。对于打开同一个文件的所有进程，它们共享该文件的v节点结构，但是可以拥有各自的文件表项，即不同的文件状态标志和当前偏移量。
+l          共享文件表项。父子进程之间或者通过dup函数复制文件描述符，可以使不同文件描述符共享一个文件表项。
+实验程序如下：
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <stdio.h>
+#include <stdlib.h>
+ 
+int main(int argc, char *argv[])
+{
+     int fd1, fd2, fd3, flag;
+     struct stat st1, st2;
+     pid_t pid;
+     char buf[6] = "hello";
+     off_t currpos;
+    
+     if(argc != 2)
+     {
+       printf("usage: a.out <filename>/n");
+       exit(0);
+     }
+     fd1 = open(argv[1], O_RDWR | O_NONBLOCK);
+     fstat(fd1, &st1);
+     printf("share inode: filesize=%d, before write, in parent./n", (int)st1.st_size);
+     if((pid = fork()) < 0)
+     {
+       printf("fork error./n");
+       exit(0);
+     }
+     else if(pid == 0)
+     {
+       fd2 = open(argv[1], O_WRONLY | O_APPEND);
+       if(write(fd2, buf, 6) != 6)
+            printf("write error./n");
+       fstat(fd2, &st2);
+       printf("share inode: filesize=%d, after write, in child./n", (int)st2.st_size);
+       exit(0);
+     }
+    
+     sleep(1);
+     fstat(fd1, &st1);
+     printf("share inode: filesize=%d, after write, in parent./n", (int)st1.st_size);
+     fd3 = dup(fd1);
+     lseek(fd1, 10, SEEK_SET);
+     currpos = lseek(fd3, 0, SEEK_CUR);
+     printf("share file table entry: current offset is %d./n", (int)currpos);
+     flag = fcntl(fd3, F_GETFL, 0);
+     if((flag & O_NONBLOCK) != 0)
+       printf("share file table entry: O_NONBLOCK of fd3 is on, before change fd1./n");
+     flag = fcntl(fd1, F_GETFL, 0);
+     flag &= ~O_NONBLOCK;
+     fcntl(fd1, F_SETFL, flag);
+     flag = fcntl(fd3, F_GETFL, 0);
+     if((flag & O_NONBLOCK) == 0)
+       printf("share file table entry: O_NONBLOCK of fd3 is off, after change fd1./n");
+     exit(0);
+}
+         运行结果如下：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out tempfile
+share inode: filesize=612, before write, in parent.
+share inode: filesize=618, after write, in child.
+share inode: filesize=618, after write, in parent.
+share file table entry: current offset is 10.
+share file table entry: O_NONBLOCK of fd3 is on, before change fd1.
+share file table entry: O_NONBLOCK of fd3 is off, after change fd1.
+
+原子操作
+由于存在文件共享，需要使用原子操作解决不同进程间的同步问题。主要的原子操作有三个：
+l          在调用open函数时，设置O_APPEND标志，使进程在每次写操作前，先将文件偏移量定位到文件尾部。
+l          在调用open函数时，同时设置O_CREAT和O_EXCL标志，使测试文件是否存在和创建文件两者成为一个原子操作。
+l          使用pread和pwrite函数，原子性地执行seek和I/O。

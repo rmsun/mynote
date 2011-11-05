@@ -1,0 +1,87 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T15:56:07+08:00
+
+====== 13 捕捉信号 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-8-17
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《UNIX环境高级编程》(第2版)》第10章。
+2.          总结了sigaction函数的用法，用以替代先前捕捉信号使用的signal函数。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+sigaction
+ 
+ 
+ 
+前面学习过signal函数，使用它为某个特定信号指定一个信号处理函数，即可捕捉该信号。但是，如果希望在处理信号的同时，指定额外的信号屏蔽字，或者更自由地控制信号处理函数的行为，或者需要获取信号产生的原因，那么应该使用更为强大的sigaction函数。
+#include <signal.h>
+int sigaction(int signo, const struct sigaction *restrict act, struct sigaction *restrict oact);
+         其中，参数signo是要检查或修改其具体动作的信号编号。若act指针非空，则要修改其动作。若oact指针非空，则系统经由oact指针返回该信号的上一个动作。一旦对给定的信号设置了一个动作，那么在调用sigaction显式地改变它之前，该设置就一直有效。
+struct sigaction {
+       void      (*sa_handler)(int);   /* addr of signal handler, */
+                                       /* or SIG_IGN, or SIG_DFL */
+       sigset_t sa_mask;               /* additional signals to block */
+       int      sa_flags;              /* signal options, Figure 10.16 */
+       /* alternate handler */
+       void     (*sa_sigaction)(int, siginfo_t *, void *);
+};
+         当更改信号动作时，如果sa_handler字段包含一个信号处理函数的地址，则sa_mask字段说明了一个信号集，在调用该信号处理函数之前，这一信号集要加到进程的信号屏蔽字中。仅当从信号处理函数返回时再将进程的信号屏蔽字复位为原先值。这样，在调用信号处理函数时就能阻塞某些信号。在信号处理函数被调用时，操作系统建立的新信号屏蔽字包括正被递送的信号。
+         act结构的sa_flags字段指定对信号进行处理的各个选项：
+l          SA_INTERRUPT：由信号中断的系统调用不会自动重启，这是默认处理方式。
+l          SA_RESTART：由此信号中断的系统调用会自动重启动。
+l          SA_NOCLDSTOP：若signo是SIGCHLD，当子进程停止或继续时不产生此信号。当子进程终止时，产生此信号。
+l          SA_NOCLDWAIT：若signo是SIGCHLD，则当调用进程的子进程终止时，不创建僵死进程。若进程在后面调用wait，则调用进程阻塞，直到其所有子进程终止，此时返回-1，并设置errno为ECHILD。
+l          SA_NODEFER：当捕捉到此信号时，在执行其信号处理函数时，系统不自动屏蔽此信号。
+l          SA_RESETHAND：在此信号处理函数的入口处，将此信号的处理方式复位为SIG_DFL，并清除SA_SIGINFO标志。
+l          SA_SIGINFO：此选项对信号处理函数提供附加信息。
+sa_sigaction字段是一个替代的信号处理函数，当在sigaction结构中使用了SA_SIGINFO标志时，使用该信号处理函数。它按下列方式调用：
+void handler(int signo, siginfo_t *info, void *context);
+         其中，siginfo_t结构包含了信号产生原因的有关信息。context参数是无类型指针，可被强制转换为ucntext_t结构类型，用于标识信号传递时进程的上下文。
+         实验程序如下：
+#include "apue.h"
+#include <errno.h>
+ 
+static void sig_chld(int signo)
+{
+     sigset_t oldmask;
+ 
+     if(sigprocmask(0, NULL, &oldmask) < 0)
+       err_sys("sigprocmask error");
+     if(sigismember(&oldmask, SIGCHLD))
+       printf("SIGCHLD is blocked./n");
+     pr_mask("in sig_chld: ");
+     if(wait(NULL) < 0)
+       perror("wait error");
+}
+ 
+int main()
+{
+     struct sigaction act, oact;
+     pid_t pid;
+    
+     act.sa_handler = sig_chld;
+     sigemptyset(&act.sa_mask);
+     sigaddset(&act.sa_mask, SIGINT);
+     act.sa_flags = SA_NOCLDWAIT;
+     if(sigaction(SIGCHLD, &act, &oact) < 0)
+       err_sys("sigaction(SIGCHLD) error");
+     if((pid = fork()) < 0)
+       err_sys("fork error");
+     else if(pid == 0)
+       exit(0);
+     sleep(1);
+     exit(0);
+}
+         运行结果为：
+pydeng@pydeng-laptop:~/apue.2e/mytest$ ./a.out
+SIGCHLD is blocked.
+in sig_chld: SIGINT
+wait error: No child processes

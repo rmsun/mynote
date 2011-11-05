@@ -1,0 +1,124 @@
+Content-Type: text/x-zim-wiki
+Wiki-Format: zim 0.4
+Creation-Date: 2011-10-20T16:22:49+08:00
+
+====== 11 单源最短路径问题 ======
+Created Thursday 20 October 2011
+
+By:             潘云登
+Date:          2009-7-29
+Email:         intrepyd@gmail.com
+Homepage: http://blog.csdn.net/intrepyd
+Copyright: 该文章版权由潘云登所有。可在非商业目的下任意传播和复制。
+对于商业目的下对本文的任何行为需经作者同意。
+
+写在前面
+1.          本文内容对应《算法导论》(第2版)》第24章。
+2.          主要介绍了两种求解单源最短路径的算法：Bellman-Ford算法和Dijkstra算法。
+3.          希望本文对您有所帮助，也欢迎您给我提意见和建议。
+
+最短路径问题
+在最短路径问题中，给出的是一个带权有向图G=(V, E)，加权函数w：E->R为从边到实型权值的映射。路径p=<v0, v1, …, vk>的权是指其组成边的所有权值之和w(p)。可以定义从u到v间的最短路径的权为δ(u, v)=min{w(p)}。如果从u到v不可达，则δ(u, v)为∞。一条最短路径既不能包含负权回路，也不会包含正权回路。由于最短路径问题具有最优子结构性质，即最短路径的子路径是最短路径，因此可以利用动态规划或贪心算法的思想进行求解。单源最短路径问题，在给定图G=(V, E)的情况下，希望找出从某个给定源顶点s∈V到每个顶点v∈V的最短路径。
+     通常不仅希望算出最短路径的权，而且希望得到最短路径上的顶点。因此，可以对每个顶点v，设置其前趋顶点π[v]，以便使源于顶点v的前趋链表沿着从s到v的最短路径的相反方向排列。由π的值导出的前趋子图Gπ=(Vπ, Eπ)定义为，Vπ={v∈V: π[v]≠NULL}∪{s}，即顶点集Vπ为G中所有具有非空前趋的顶点集合加上源点s；且Eπ={(π[v], v)∈E: v∈Vπ-{s}}，即有向边集Eπ是Vπ中的顶点的π值导出的边集。在单源最短路径问题得解后，Gπ就是最短路径树，包含了从源点s到s可达的每个顶点之间的一条最短路径。
+
+松弛操作
+对每个顶点v∈V，可以设置一个属性d[v]，用来描述从源点s到v的最短路径上权值的上界，称为最短路径估计。在初始化时，对所有v∈V，有π[v]=NULL，对v∈V-{s}，有d[s]=0以及d[v]=∞。在松弛一条边(u, v)的过程中，要测试是否可以通过u，对迄今找到的道v的最短路径进行改进；如果可以改进的话，则更新d[v]和前趋π[v]。松弛操作是单源最短路径算法中改变最短路径和前趋的唯一方式。
+void initalize_single_source(adjlist *graphic, int s)
+{
+    int i;
+ 
+    for(i=0; i<graphic->vertex_number; i++)
+    {
+                  graphic->distance[i] = INFINITE;
+                  graphic->ancestor[i] = -1;
+    }
+    graphic->distance[s] = 0;
+}
+ 
+void relax(adjlist *graphic, int u, int v, int weight)
+{
+    if(graphic->distance[v] > graphic->distance[u]+weight)
+    {
+                  graphic->distance[v] = graphic->distance[u]+weight;
+                  graphic->ancestor[v] = u;
+    }
+}
+
+Bellman-Ford
+ 
+算法
+Bellman-Ford算法能在存在负权边的情况下，解决单源最短路径问题，并且可以返回一个布尔值，表明图中是否存在一个从源点可达的负权回路，这是它优于Dijkstra算法的地方。Bellman-Ford算法：首先，对各个顶点的最短路径估计d和前趋π进行初始化；然后，执行|V|-1次循环，每次循环中，利用松弛操作对所有边的端点的最短路径估计d和前趋π进行更新；最后，通过判断各顶点的最短路径估计是否收敛，表明是否存在负权回路。由于第二步的循环需要(|V|-1)|E|次松弛操作，Bellman-Ford算法的总运行时间为O(VE)。
+         在算法开始前，最短路径树中仅包含源点s。第一趟循环过后，与s相邻的结点被加入到最短路径树中。在所有顶点可达的情况下，至多需要|V|-1次循环，便可将所有顶点加入到树中。由于后加入的顶点与其前趋结点之间可能存在负权边，因此，已经存在于树中的路径仍然可能被更新。换句话说，在不存在负权回路的情况下，路径(s, v)至多需要|V|-1次松弛操作，即可收敛到最短路径的权d[v]=δ(s, v)。这是因为在|V|-1次循环后，不会再有新结点引入负权边，导致路径(s, v)被更新。这也是检查负权回路是否存在的依据。
+int bellman_ford(adjlist *graphic, int s)
+{
+    int i, j;
+    lnode *temp_lnode=NULL;
+ 
+    initalize_single_source(graphic, s);
+    for(i=0; i<graphic->vertex_number-1; i++)
+    {
+                  for(j=0; j<graphic->vertex_number; j++)
+                  {
+                        temp_lnode = graphic->vlist[j].link;
+                        while(temp_lnode != NULL)
+                        {
+                                      relax(graphic, j, temp_lnode->index, temp_lnode->weight);
+                                      temp_lnode = temp_lnode->next;
+                        }
+                  }
+    }
+    for(j=0; j<graphic->vertex_number; j++)
+    {
+                  temp_lnode = graphic->vlist[j].link;
+                  while(temp_lnode != NULL)
+                  {
+                        if(graphic->distance[temp_lnode->index]
+                               > graphic->distance[j]+temp_lnode->weight)
+                            return 0;
+                        temp_lnode = temp_lnode->next;
+                  }
+    }
+    return 1;
+}
+Bellman-Ford算法的不足在于，每次循环过程中存在许多冗余的松弛操作。一种改进的SPFA(Shortest Path Faster Algorithm)算法基于以下观察：只有那些在前一趟循环中更新了最短路径估计的顶点，才可能引起它们的邻接点的最短路径估计的改变。因此，SPFA算法用一个队列来存放被成功松弛的顶点。初始时，源点s入队。当队列不为空时，取出队首顶点， 对它的邻接点进行松弛。如果某个邻接点松弛成功，且该邻接点不在队列中，则将其入队。经过有限次的松弛操作后，队列将为空，算法结束。但是，只有在不存在负权回路的时候，SPFA算法才能正常工作。
+
+Dijkstra
+ 
+算法
+Dijkstra算法比Bellman-Ford算法的运行时间要低，但它要求所有边的权值非负。Dijkstra算法中设置了一个顶点集合S，从源点s到集合中的顶点的最终最短路径的权值均已确定。算法反复选择具有最短路径估计的顶点u∈V-S，并将u加入S中，对u的所有出边进行松弛。由于总是在V-S中选择“最近”的顶点插入集合S中，可以说Dijkstra算法使用了贪心策略。可以想象，在Dijkstra算法的执行过程中，最短路径估计沿着以s为根的最短路径树向下传播。由于不存在负权边，最短路径树中的边一旦确定就不再改变。可以使用最小堆构建的最小优先队列（同Prim算法），存储集合V-S中的顶点。Dijkstra算法需要|V|次运行时间为O(lg V)的heap_extract_min操作和|E|次运行时间为O(lg V)的heap_decrease_key操作，因此，总的运行时间为O((V+E) lg V)，如果所有顶点都从源点可达的话，则为O(E lg V)。
+void dijkstra(adjlist *graphic, int s)
+{
+    int i, d;
+    heap h;
+    vhnode *temp_vhnode=NULL;
+    lnode *temp_lnode=NULL;
+ 
+    initalize_single_source(graphic, s);
+    init_heap(&h, graphic->vertex_number);
+    for(i=0; i<graphic->vertex_number; i++)
+    {
+                  h.array[i].index = i;
+                  h.array[i].key = graphic->distance[i];
+                  h.array[i].ancestor = graphic->ancestor[i];
+    }
+    build_min_heap(&h);
+ 
+    while(h.heap_size > 0)
+    {
+                  temp_vhnode = heap_extract_min(&h);
+                  /*S <- SU{temp_vnode}*/
+                  temp_lnode = graphic->vlist[temp_vhnode->index].link;
+                  while(temp_lnode != NULL)
+                  {
+                        d = graphic->distance[temp_lnode->index];
+                        relax(graphic, temp_vhnode->index,
+                                    temp_lnode->index, temp_lnode->weight);
+                        if(d != graphic->distance[temp_lnode->index])
+                                      heap_decrease_key(&h,
+                                             heap_search(&h, temp_lnode->index),
+                                             graphic->distance[temp_lnode->index]);
+                        temp_lnode = temp_lnode->next;
+                  }
+    }
+    free_heap(&h);
+}
